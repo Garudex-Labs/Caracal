@@ -381,3 +381,369 @@ class TestPolicyStore:
         # Verify Decimal conversion
         limit = policies[0].get_limit_decimal()
         assert limit == Decimal("123.456789")
+
+
+
+class TestPolicyDecision:
+    """Test PolicyDecision dataclass."""
+
+    def test_policy_decision_allowed(self):
+        """Test creating an allowed PolicyDecision."""
+        from caracal.core.policy import PolicyDecision
+        
+        decision = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("50.00")
+        )
+        
+        assert decision.allowed is True
+        assert decision.reason == "Within budget"
+        assert decision.remaining_budget == Decimal("50.00")
+
+    def test_policy_decision_denied(self):
+        """Test creating a denied PolicyDecision."""
+        from caracal.core.policy import PolicyDecision
+        
+        decision = PolicyDecision(
+            allowed=False,
+            reason="Budget exceeded"
+        )
+        
+        assert decision.allowed is False
+        assert decision.reason == "Budget exceeded"
+        assert decision.remaining_budget is None
+
+
+class TestPolicyEvaluator:
+    """Test PolicyEvaluator class."""
+
+    def test_policy_evaluator_initialization(self, temp_dir):
+        """Test initializing a PolicyEvaluator."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerQuery
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        policy_store = PolicyStore(str(policy_path))
+        ledger_query = LedgerQuery(str(ledger_path))
+        
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        
+        assert evaluator.policy_store == policy_store
+        assert evaluator.ledger_query == ledger_query
+
+    def test_check_budget_no_policy(self, temp_dir):
+        """Test budget check when no policy exists (fail-closed)."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerQuery
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        policy_store = PolicyStore(str(policy_path))
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        
+        # Check budget for agent with no policy
+        decision = evaluator.check_budget("non-existent-agent")
+        
+        assert decision.allowed is False
+        assert "No active policy" in decision.reason
+        assert decision.remaining_budget is None
+
+    def test_check_budget_within_budget(self, temp_dir):
+        """Test budget check when agent is within budget."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerWriter, LedgerQuery
+        from datetime import datetime
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Create ledger with some spending (less than limit)
+        ledger_writer = LedgerWriter(str(ledger_path))
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource",
+            quantity=Decimal("10"),
+            cost=Decimal("30.00"),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Check budget
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        decision = evaluator.check_budget(agent_id)
+        
+        assert decision.allowed is True
+        assert decision.reason == "Within budget"
+        assert decision.remaining_budget == Decimal("70.00")
+
+    def test_check_budget_exceeded(self, temp_dir):
+        """Test budget check when agent exceeds budget."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerWriter, LedgerQuery
+        from datetime import datetime
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Create ledger with spending exceeding limit
+        ledger_writer = LedgerWriter(str(ledger_path))
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource",
+            quantity=Decimal("100"),
+            cost=Decimal("120.00"),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Check budget
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        decision = evaluator.check_budget(agent_id)
+        
+        assert decision.allowed is False
+        assert "Budget exceeded" in decision.reason
+        assert "120.00" in decision.reason
+        assert "100.00" in decision.reason
+        assert decision.remaining_budget == Decimal("0")
+
+    def test_check_budget_at_limit(self, temp_dir):
+        """Test budget check when agent is exactly at limit."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerWriter, LedgerQuery
+        from datetime import datetime
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Create ledger with spending exactly at limit
+        ledger_writer = LedgerWriter(str(ledger_path))
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource",
+            quantity=Decimal("100"),
+            cost=Decimal("100.00"),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Check budget
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        decision = evaluator.check_budget(agent_id)
+        
+        # At limit should be denied (>= check)
+        assert decision.allowed is False
+        assert "Budget exceeded" in decision.reason
+
+    def test_check_budget_daily_window(self, temp_dir):
+        """Test that budget check uses daily time window correctly."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerWriter, LedgerQuery
+        from datetime import datetime, timedelta
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Create ledger with spending from yesterday (should not count)
+        ledger_writer = LedgerWriter(str(ledger_path))
+        yesterday = datetime.utcnow() - timedelta(days=1)
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource",
+            quantity=Decimal("100"),
+            cost=Decimal("150.00"),
+            timestamp=yesterday
+        )
+        
+        # Add spending from today
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource",
+            quantity=Decimal("10"),
+            cost=Decimal("30.00"),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Check budget (should only count today's spending)
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        decision = evaluator.check_budget(agent_id)
+        
+        assert decision.allowed is True
+        assert decision.remaining_budget == Decimal("70.00")
+
+    def test_check_budget_multiple_events(self, temp_dir):
+        """Test budget check with multiple events in the same day."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerWriter, LedgerQuery
+        from datetime import datetime
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Create ledger with multiple events
+        ledger_writer = LedgerWriter(str(ledger_path))
+        now = datetime.utcnow()
+        
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource1",
+            quantity=Decimal("10"),
+            cost=Decimal("20.00"),
+            timestamp=now
+        )
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource2",
+            quantity=Decimal("20"),
+            cost=Decimal("30.00"),
+            timestamp=now
+        )
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource3",
+            quantity=Decimal("30"),
+            cost=Decimal("25.00"),
+            timestamp=now
+        )
+        
+        # Check budget (total: 75.00)
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        decision = evaluator.check_budget(agent_id)
+        
+        assert decision.allowed is True
+        assert decision.remaining_budget == Decimal("25.00")
+
+    def test_check_budget_zero_spending(self, temp_dir):
+        """Test budget check with no spending."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerQuery
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Check budget with no spending
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        decision = evaluator.check_budget(agent_id)
+        
+        assert decision.allowed is True
+        assert decision.remaining_budget == Decimal("100.00")
+
+    def test_check_budget_custom_time(self, temp_dir):
+        """Test budget check with custom current_time parameter."""
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerWriter, LedgerQuery
+        from datetime import datetime
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Create ledger with spending at specific time
+        ledger_writer = LedgerWriter(str(ledger_path))
+        specific_time = datetime(2024, 1, 15, 14, 30, 0)
+        ledger_writer.append_event(
+            agent_id=agent_id,
+            resource_type="test.resource",
+            quantity=Decimal("10"),
+            cost=Decimal("40.00"),
+            timestamp=specific_time
+        )
+        
+        # Check budget with custom time (same day)
+        ledger_query = LedgerQuery(str(ledger_path))
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        check_time = datetime(2024, 1, 15, 18, 0, 0)
+        decision = evaluator.check_budget(agent_id, current_time=check_time)
+        
+        assert decision.allowed is True
+        assert decision.remaining_budget == Decimal("60.00")
+
+    def test_check_budget_fail_closed_on_error(self, temp_dir):
+        """Test that policy evaluator fails closed on critical errors."""
+        from caracal.core.policy import PolicyEvaluator, PolicyEvaluationError
+        from caracal.core.ledger import LedgerQuery
+        from unittest.mock import Mock
+        
+        policy_path = temp_dir / "policies.json"
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Create policy
+        policy_store = PolicyStore(str(policy_path))
+        agent_id = "550e8400-e29b-41d4-a716-446655440000"
+        policy_store.create_policy(
+            agent_id=agent_id,
+            limit_amount=Decimal("100.00")
+        )
+        
+        # Create evaluator with mocked ledger query that raises an error
+        ledger_query = Mock()
+        ledger_query.sum_spending.side_effect = Exception("Simulated ledger error")
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        
+        # Check budget should fail closed (raise exception)
+        with pytest.raises(PolicyEvaluationError) as exc_info:
+            evaluator.check_budget(agent_id)
+        
+        assert "Failed to query spending" in str(exc_info.value)

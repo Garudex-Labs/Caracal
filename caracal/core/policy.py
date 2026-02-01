@@ -17,9 +17,11 @@ from typing import Any, Dict, List, Optional
 
 from caracal.exceptions import (
     AgentNotFoundError,
+    BudgetExceededError,
     FileReadError,
     FileWriteError,
     InvalidPolicyError,
+    PolicyEvaluationError,
 )
 
 
@@ -299,4 +301,125 @@ class PolicyStore:
         except Exception as e:
             raise FileReadError(
                 f"Failed to load policy store from {self.policy_path}: {e}"
+            ) from e
+
+
+@dataclass
+class PolicyDecision:
+    """
+    Represents the result of a policy evaluation.
+    
+    Attributes:
+        allowed: Whether the action is allowed
+        reason: Human-readable explanation for the decision
+        remaining_budget: Remaining budget if allowed, None otherwise
+    """
+    allowed: bool
+    reason: str
+    remaining_budget: Optional[Decimal] = None
+
+
+class PolicyEvaluator:
+    """
+    Stateless decision engine for budget enforcement.
+    
+    Evaluates whether an agent is within budget by:
+    1. Loading policies from PolicyStore
+    2. Querying current spending from LedgerQuery
+    3. Comparing spending against policy limits
+    4. Implementing fail-closed semantics (deny on error or missing policy)
+    """
+
+    def __init__(self, policy_store: PolicyStore, ledger_query):
+        """
+        Initialize PolicyEvaluator.
+        
+        Args:
+            policy_store: PolicyStore instance for loading policies
+            ledger_query: LedgerQuery instance for querying spending
+        """
+        self.policy_store = policy_store
+        self.ledger_query = ledger_query
+
+    def check_budget(self, agent_id: str, current_time: Optional[datetime] = None) -> PolicyDecision:
+        """
+        Check if agent is within budget.
+        
+        Implements fail-closed semantics:
+        - Denies if no policy exists for agent
+        - Denies if policy evaluation fails
+        - Denies if spending exceeds limit
+        
+        Args:
+            agent_id: Agent identifier
+            current_time: Current time for time window calculation (defaults to UTC now)
+            
+        Returns:
+            PolicyDecision with allow/deny and reason
+            
+        Raises:
+            PolicyEvaluationError: If evaluation fails critically (fail-closed)
+        """
+        try:
+            # Use current UTC time if not provided
+            if current_time is None:
+                current_time = datetime.utcnow()
+            
+            # 1. Get policies for agent (fail closed if none)
+            policies = self.policy_store.get_policies(agent_id)
+            if not policies:
+                return PolicyDecision(
+                    allowed=False,
+                    reason=f"No active policy found for agent '{agent_id}'"
+                )
+            
+            # 2. Use the first active policy (v0.1 supports single policy per agent)
+            policy = policies[0]
+            
+            # 3. Calculate time window bounds based on policy time_window
+            if policy.time_window == "daily":
+                # Start of current day (00:00:00)
+                window_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                window_end = current_time
+            else:
+                # Should not happen due to validation in create_policy, but fail closed
+                raise PolicyEvaluationError(
+                    f"Unsupported time window '{policy.time_window}' in policy {policy.policy_id}"
+                )
+            
+            # 4. Query ledger for spending in window
+            try:
+                spending = self.ledger_query.sum_spending(agent_id, window_start, window_end)
+            except Exception as e:
+                # Fail closed on ledger query error
+                raise PolicyEvaluationError(
+                    f"Failed to query spending for agent '{agent_id}': {e}"
+                ) from e
+            
+            # 5. Get policy limit as Decimal
+            limit = policy.get_limit_decimal()
+            
+            # 6. Check against limit
+            if spending >= limit:
+                return PolicyDecision(
+                    allowed=False,
+                    reason=f"Budget exceeded: {spending} {policy.currency} >= {limit} {policy.currency}",
+                    remaining_budget=Decimal('0')
+                )
+            
+            # 7. Allow with remaining budget
+            remaining = limit - spending
+            return PolicyDecision(
+                allowed=True,
+                reason="Within budget",
+                remaining_budget=remaining
+            )
+            
+        except PolicyEvaluationError:
+            # Re-raise PolicyEvaluationError (already logged)
+            raise
+        except Exception as e:
+            # Fail closed on any unexpected error
+            raise PolicyEvaluationError(
+                f"Critical error during policy evaluation for agent '{agent_id}': {e}"
             ) from e
