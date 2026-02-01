@@ -388,7 +388,7 @@ class GatewayProxy:
                     content={
                         "error": "budget_exceeded",
                         "message": policy_decision.reason,
-                        "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget else None
+                        "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget is not None else None
                     }
                 )
             
@@ -429,7 +429,7 @@ class GatewayProxy:
             try:
                 from decimal import Decimal
                 from ase.protocol import MeteringEvent
-                from datetime import datetime
+                # datetime is already imported at module level
                 
                 # Extract actual cost from response headers if provided
                 # Otherwise, use the estimated cost from the provisional charge
@@ -690,7 +690,8 @@ class GatewayProxy:
             body = await request.body()
             
             # Prepare headers (exclude Caracal-specific headers)
-            headers = dict(request.headers)
+            # Convert to lowercase for case-insensitive comparison
+            headers = {k.lower(): v for k, v in request.headers.items()}
             caracal_headers = [
                 "x-caracal-target-url",
                 "x-caracal-estimated-cost",
