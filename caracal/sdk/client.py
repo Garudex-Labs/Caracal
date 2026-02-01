@@ -22,6 +22,11 @@ from caracal.exceptions import (
 )
 from caracal.logging_config import get_logger
 
+# Import context manager (avoid circular import with TYPE_CHECKING)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from caracal.sdk.context import BudgetCheckContext
+
 logger = get_logger(__name__)
 
 
@@ -292,3 +297,39 @@ class CaracalClient:
                 exc_info=True
             )
             return None
+
+    def budget_check(self, agent_id: str) -> "BudgetCheckContext":
+        """
+        Create a budget check context manager.
+        
+        This context manager checks the agent's budget on entry and
+        raises BudgetExceededError if the budget is exceeded.
+        
+        Implements fail-closed semantics: raises BudgetExceededError
+        if budget check fails for any reason.
+        
+        Args:
+            agent_id: Agent identifier
+            
+        Returns:
+            BudgetCheckContext instance
+            
+        Raises:
+            BudgetExceededError: If budget is exceeded or check fails
+            
+        Example:
+            >>> client = CaracalClient()
+            >>> with client.budget_check(agent_id="my-agent"):
+            ...     # Code that incurs costs
+            ...     result = call_expensive_api()
+            ...     # Emit metering event manually
+            ...     client.emit_event(
+            ...         agent_id="my-agent",
+            ...         resource_type="openai.gpt4.input_tokens",
+            ...         quantity=Decimal("1000")
+            ...     )
+        """
+        # Import here to avoid circular import
+        from caracal.sdk.context import BudgetCheckContext
+        
+        return BudgetCheckContext(self, agent_id)

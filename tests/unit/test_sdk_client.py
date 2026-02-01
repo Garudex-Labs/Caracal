@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from caracal.exceptions import ConnectionError
+from caracal.exceptions import BudgetExceededError, ConnectionError
 from caracal.sdk.client import CaracalClient
+from caracal.sdk.context import BudgetCheckContext
 
 
 class TestCaracalClient:
@@ -351,3 +352,194 @@ storage:
             event_data = json.loads(f.readline())
         
         assert event_data["metadata"] == metadata
+
+
+class TestBudgetCheckContext:
+    """Test BudgetCheckContext class."""
+
+    def test_budget_check_context_success(self, temp_dir, sample_pricebook_path):
+        """Test budget check context when agent is within budget."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register an agent
+        agent = client.agent_registry.register_agent(
+            name="test-agent",
+            owner="test@example.com"
+        )
+        
+        # Create a policy
+        client.policy_store.create_policy(
+            agent_id=agent.agent_id,
+            limit_amount=Decimal("100.00"),
+            time_window="daily"
+        )
+        
+        # Use budget check context (should succeed)
+        with client.budget_check(agent_id=agent.agent_id):
+            # Code that would incur costs
+            pass
+
+    def test_budget_check_context_exceeded(self, temp_dir, sample_pricebook_path):
+        """Test budget check context when agent has exceeded budget."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register an agent
+        agent = client.agent_registry.register_agent(
+            name="test-agent",
+            owner="test@example.com"
+        )
+        
+        # Create a policy with low limit
+        client.policy_store.create_policy(
+            agent_id=agent.agent_id,
+            limit_amount=Decimal("0.01"),  # Very low limit
+            time_window="daily"
+        )
+        
+        # Emit event that exceeds budget
+        client.emit_event(
+            agent_id=agent.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("1000"),  # Cost: 0.030
+        )
+        
+        # Use budget check context (should raise BudgetExceededError)
+        with pytest.raises(BudgetExceededError) as exc_info:
+            with client.budget_check(agent_id=agent.agent_id):
+                # This code should not execute
+                pass
+        
+        assert "Budget check failed" in str(exc_info.value)
+        assert agent.agent_id in str(exc_info.value)
+
+    def test_budget_check_context_no_policy(self, temp_dir, sample_pricebook_path):
+        """Test budget check context with no policy (should fail closed)."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register an agent
+        agent = client.agent_registry.register_agent(
+            name="test-agent",
+            owner="test@example.com"
+        )
+        
+        # Use budget check context without policy (should raise BudgetExceededError)
+        with pytest.raises(BudgetExceededError) as exc_info:
+            with client.budget_check(agent_id=agent.agent_id):
+                # This code should not execute
+                pass
+        
+        assert "Budget check failed" in str(exc_info.value)
+        assert "No active policy" in str(exc_info.value)
+
+    def test_budget_check_context_with_exception(self, temp_dir, sample_pricebook_path):
+        """Test that budget check context doesn't suppress exceptions."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register an agent
+        agent = client.agent_registry.register_agent(
+            name="test-agent",
+            owner="test@example.com"
+        )
+        
+        # Create a policy
+        client.policy_store.create_policy(
+            agent_id=agent.agent_id,
+            limit_amount=Decimal("100.00"),
+            time_window="daily"
+        )
+        
+        # Use budget check context and raise exception inside
+        with pytest.raises(ValueError) as exc_info:
+            with client.budget_check(agent_id=agent.agent_id):
+                # Raise an exception inside the context
+                raise ValueError("Test exception")
+        
+        assert "Test exception" in str(exc_info.value)
+
+    def test_budget_check_method_returns_context(self, temp_dir, sample_pricebook_path):
+        """Test that budget_check method returns BudgetCheckContext instance."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register an agent
+        agent = client.agent_registry.register_agent(
+            name="test-agent",
+            owner="test@example.com"
+        )
+        
+        # Get context manager
+        context = client.budget_check(agent_id=agent.agent_id)
+        
+        # Verify it's a BudgetCheckContext instance
+        assert isinstance(context, BudgetCheckContext)
+        assert context.client is client
+        assert context.agent_id == agent.agent_id
