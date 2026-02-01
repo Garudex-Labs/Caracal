@@ -136,12 +136,16 @@ class Pricebook:
         """
         # Validate price is non-negative
         if price_per_unit < 0:
+            logger.warning(f"Attempted to set negative price for '{resource_type}': {price_per_unit}")
             raise InvalidPriceError(
                 f"Price must be non-negative, got {price_per_unit}"
             )
         
         # Validate decimal precision (up to 6 decimal places)
         if price_per_unit.as_tuple().exponent < -6:
+            logger.warning(
+                f"Attempted to set price with too many decimal places for '{resource_type}': {price_per_unit}"
+            )
             raise InvalidPriceError(
                 f"Price can have at most 6 decimal places, got {price_per_unit}"
             )
@@ -191,12 +195,17 @@ class Pricebook:
         
         for resource_type, price_info in json_data.items():
             if not isinstance(price_info, dict):
+                logger.error(
+                    f"Invalid price info format for '{resource_type}': "
+                    f"expected dict, got {type(price_info).__name__}"
+                )
                 raise PricebookError(
                     f"Invalid price info for '{resource_type}': "
                     f"expected dict, got {type(price_info).__name__}"
                 )
             
             if "price" not in price_info:
+                logger.error(f"Missing 'price' field for '{resource_type}' in JSON import")
                 raise PricebookError(
                     f"Missing 'price' field for '{resource_type}'"
                 )
@@ -204,6 +213,10 @@ class Pricebook:
             try:
                 price = Decimal(str(price_info["price"]))
             except (InvalidOperation, ValueError) as e:
+                logger.error(
+                    f"Invalid price value for '{resource_type}': {price_info['price']}",
+                    exc_info=True
+                )
                 raise InvalidPriceError(
                     f"Invalid price value for '{resource_type}': "
                     f"{price_info['price']}"
@@ -211,6 +224,7 @@ class Pricebook:
             
             # Validate price is non-negative
             if price < 0:
+                logger.error(f"Negative price in JSON import for '{resource_type}': {price}")
                 raise InvalidPriceError(
                     f"Price must be non-negative for '{resource_type}', "
                     f"got {price}"

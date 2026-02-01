@@ -144,12 +144,16 @@ class LedgerWriter:
         """
         # Validate inputs
         if not agent_id:
+            logger.warning("Ledger write validation failed: agent_id cannot be empty")
             raise InvalidLedgerEventError("agent_id cannot be empty")
         if not resource_type:
+            logger.warning("Ledger write validation failed: resource_type cannot be empty")
             raise InvalidLedgerEventError("resource_type cannot be empty")
         if quantity < 0:
+            logger.warning(f"Ledger write validation failed: quantity must be non-negative, got {quantity}")
             raise InvalidLedgerEventError(f"quantity must be non-negative, got {quantity}")
         if cost < 0:
+            logger.warning(f"Ledger write validation failed: cost must be non-negative, got {cost}")
             raise InvalidLedgerEventError(f"cost must be non-negative, got {cost}")
         
         # Create backup on first write (if not already created)
@@ -182,6 +186,10 @@ class LedgerWriter:
             )
             return event
         except Exception as e:
+            logger.error(
+                f"Failed to append event to ledger {self.ledger_path}: {e}",
+                exc_info=True
+            )
             raise LedgerWriteError(
                 f"Failed to append event to ledger {self.ledger_path}: {e}"
             ) from e

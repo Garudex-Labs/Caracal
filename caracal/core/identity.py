@@ -20,6 +20,9 @@ from caracal.exceptions import (
     FileReadError,
     FileWriteError,
 )
+from caracal.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -77,6 +80,9 @@ class AgentRegistry:
         # Load existing registry if it exists
         if self.registry_path.exists():
             self._load()
+            logger.info(f"Loaded {len(self._agents)} agents from {self.registry_path}")
+        else:
+            logger.info(f"Initialized new agent registry at {self.registry_path}")
 
     def register_agent(
         self, 
@@ -100,6 +106,7 @@ class AgentRegistry:
         """
         # Validate unique name
         if name in self._names:
+            logger.warning(f"Attempted to register duplicate agent name: {name}")
             raise DuplicateAgentNameError(
                 f"Agent with name '{name}' already exists"
             )
@@ -123,6 +130,8 @@ class AgentRegistry:
         # Persist to disk
         self._persist()
         
+        logger.info(f"Registered agent: id={agent_id}, name={name}, owner={owner}")
+        
         return agent
 
     def get_agent(self, agent_id: str) -> Optional[AgentIdentity]:
@@ -135,7 +144,12 @@ class AgentRegistry:
         Returns:
             AgentIdentity if found, None otherwise
         """
-        return self._agents.get(agent_id)
+        agent = self._agents.get(agent_id)
+        if agent:
+            logger.debug(f"Retrieved agent: id={agent_id}, name={agent.name}")
+        else:
+            logger.debug(f"Agent not found: id={agent_id}")
+        return agent
 
     def list_agents(self) -> List[AgentIdentity]:
         """
@@ -179,7 +193,10 @@ class AgentRegistry:
                 self.registry_path.unlink()
             tmp_path.rename(self.registry_path)
             
+            logger.debug(f"Persisted {len(self._agents)} agents to {self.registry_path}")
+            
         except Exception as e:
+            logger.error(f"Failed to persist agent registry to {self.registry_path}: {e}", exc_info=True)
             raise FileWriteError(
                 f"Failed to persist agent registry to {self.registry_path}: {e}"
             ) from e
@@ -215,11 +232,12 @@ class AgentRegistry:
             backup_path = Path(f"{self.registry_path}.bak.1")
             shutil.copy2(self.registry_path, backup_path)
             
+            logger.debug(f"Created backup of agent registry at {backup_path}")
+            
         except Exception as e:
             # Log warning but don't fail the operation
             # Backup failure shouldn't prevent writes
-            import logging
-            logging.warning(f"Failed to create backup of agent registry: {e}")
+            logger.warning(f"Failed to create backup of agent registry: {e}")
 
     def _load(self) -> None:
         """
@@ -240,12 +258,16 @@ class AgentRegistry:
                 agent = AgentIdentity.from_dict(agent_data)
                 self._agents[agent.agent_id] = agent
                 self._names[agent.name] = agent.agent_id
+            
+            logger.debug(f"Loaded {len(self._agents)} agents from {self.registry_path}")
                 
         except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse agent registry JSON from {self.registry_path}: {e}", exc_info=True)
             raise FileReadError(
                 f"Failed to parse agent registry JSON from {self.registry_path}: {e}"
             ) from e
         except Exception as e:
+            logger.error(f"Failed to load agent registry from {self.registry_path}: {e}", exc_info=True)
             raise FileReadError(
                 f"Failed to load agent registry from {self.registry_path}: {e}"
             ) from e

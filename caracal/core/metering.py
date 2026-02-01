@@ -114,9 +114,13 @@ class MeteringCollector:
             )
             
         except InvalidMeteringEventError:
-            # Re-raise validation errors
+            # Re-raise validation errors (already logged in _validate_event)
             raise
         except Exception as e:
+            logger.error(
+                f"Failed to collect metering event for agent {event.agent_id}: {e}",
+                exc_info=True
+            )
             raise MeteringCollectionError(
                 f"Failed to collect metering event for agent {event.agent_id}: {e}"
             ) from e
@@ -141,29 +145,39 @@ class MeteringCollector:
         """
         # Validate agent_id
         if not event.agent_id or not isinstance(event.agent_id, str):
+            logger.warning("Metering event validation failed: agent_id must be a non-empty string")
             raise InvalidMeteringEventError(
                 "agent_id must be a non-empty string"
             )
         
         # Validate resource_type
         if not event.resource_type or not isinstance(event.resource_type, str):
+            logger.warning("Metering event validation failed: resource_type must be a non-empty string")
             raise InvalidMeteringEventError(
                 "resource_type must be a non-empty string"
             )
         
         # Validate quantity
         if not isinstance(event.quantity, Decimal):
+            logger.warning(
+                f"Metering event validation failed: quantity must be a Decimal, got {type(event.quantity).__name__}"
+            )
             raise InvalidMeteringEventError(
                 f"quantity must be a Decimal, got {type(event.quantity).__name__}"
             )
         
         if event.quantity < 0:
+            logger.warning(f"Metering event validation failed: quantity must be non-negative, got {event.quantity}")
             raise InvalidMeteringEventError(
                 f"quantity must be non-negative, got {event.quantity}"
             )
         
         # Validate timestamp
         if event.timestamp is not None and not isinstance(event.timestamp, datetime):
+            logger.warning(
+                f"Metering event validation failed: timestamp must be a datetime object, "
+                f"got {type(event.timestamp).__name__}"
+            )
             raise InvalidMeteringEventError(
                 f"timestamp must be a datetime object, got {type(event.timestamp).__name__}"
             )

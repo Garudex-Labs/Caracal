@@ -12,6 +12,9 @@ from typing import Any, Dict, Optional
 import yaml
 
 from caracal.exceptions import ConfigurationError, InvalidConfigurationError
+from caracal.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -138,31 +141,38 @@ def load_config(config_path: Optional[str] = None) -> CaracalConfig:
     
     # If config file doesn't exist, return defaults
     if not os.path.exists(config_path):
+        logger.info(f"Configuration file not found at {config_path}, using defaults")
         return get_default_config()
     
     # Load YAML file
     try:
         with open(config_path, 'r') as f:
             config_data = yaml.safe_load(f)
+        logger.debug(f"Loaded configuration from {config_path}")
     except yaml.YAMLError as e:
+        logger.error(f"Failed to parse YAML configuration file '{config_path}': {e}", exc_info=True)
         raise InvalidConfigurationError(
             f"Failed to parse YAML configuration file '{config_path}': {e}"
         )
     except Exception as e:
+        logger.error(f"Failed to read configuration file '{config_path}': {e}", exc_info=True)
         raise InvalidConfigurationError(
             f"Failed to read configuration file '{config_path}': {e}"
         )
     
     # If file is empty, return defaults
     if config_data is None:
+        logger.info(f"Configuration file {config_path} is empty, using defaults")
         return get_default_config()
     
     # Validate and build configuration
     try:
         config = _build_config_from_dict(config_data)
         _validate_config(config)
+        logger.info(f"Successfully loaded and validated configuration from {config_path}")
         return config
     except Exception as e:
+        logger.error(f"Invalid configuration in '{config_path}': {e}", exc_info=True)
         raise InvalidConfigurationError(
             f"Invalid configuration in '{config_path}': {e}"
         )
@@ -188,6 +198,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     
     # Parse storage configuration (required)
     if 'storage' not in config_data:
+        logger.error("Missing required 'storage' section in configuration")
         raise InvalidConfigurationError("Missing required 'storage' section in configuration")
     
     storage_data = config_data['storage']
@@ -267,14 +278,19 @@ def _validate_config(config: CaracalConfig) -> None:
     """
     # Validate storage paths are not empty
     if not config.storage.agent_registry:
+        logger.error("Configuration validation failed: agent_registry path cannot be empty")
         raise InvalidConfigurationError("agent_registry path cannot be empty")
     if not config.storage.policy_store:
+        logger.error("Configuration validation failed: policy_store path cannot be empty")
         raise InvalidConfigurationError("policy_store path cannot be empty")
     if not config.storage.ledger:
+        logger.error("Configuration validation failed: ledger path cannot be empty")
         raise InvalidConfigurationError("ledger path cannot be empty")
     if not config.storage.pricebook:
+        logger.error("Configuration validation failed: pricebook path cannot be empty")
         raise InvalidConfigurationError("pricebook path cannot be empty")
     if not config.storage.backup_dir:
+        logger.error("Configuration validation failed: backup_dir path cannot be empty")
         raise InvalidConfigurationError("backup_dir path cannot be empty")
     
     # Validate backup count is positive

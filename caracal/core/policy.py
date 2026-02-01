@@ -23,6 +23,9 @@ from caracal.exceptions import (
     InvalidPolicyError,
     PolicyEvaluationError,
 )
+from caracal.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -95,6 +98,9 @@ class PolicyStore:
         # Load existing policies if file exists
         if self.policy_path.exists():
             self._load()
+            logger.info(f"Loaded {len(self._policies)} policies from {self.policy_path}")
+        else:
+            logger.info(f"Initialized new policy store at {self.policy_path}")
 
     def create_policy(
         self,
@@ -121,6 +127,7 @@ class PolicyStore:
         """
         # Validate positive limit amount
         if limit_amount <= 0:
+            logger.warning(f"Attempted to create policy with non-positive limit: {limit_amount}")
             raise InvalidPolicyError(
                 f"Limit amount must be positive, got {limit_amount}"
             )
@@ -129,6 +136,7 @@ class PolicyStore:
         if self.agent_registry is not None:
             agent = self.agent_registry.get_agent(agent_id)
             if agent is None:
+                logger.warning(f"Attempted to create policy for non-existent agent: {agent_id}")
                 raise AgentNotFoundError(
                     f"Agent with ID '{agent_id}' does not exist"
                 )
@@ -164,6 +172,11 @@ class PolicyStore:
         # Persist to disk
         self._persist()
         
+        logger.info(
+            f"Created policy: id={policy_id}, agent_id={agent_id}, "
+            f"limit={limit_amount} {currency}, window={time_window}"
+        )
+        
         return policy
 
     def get_policies(self, agent_id: str) -> List[BudgetPolicy]:
@@ -183,6 +196,8 @@ class PolicyStore:
             policy = self._policies.get(policy_id)
             if policy and policy.active:
                 policies.append(policy)
+        
+        logger.debug(f"Retrieved {len(policies)} active policies for agent {agent_id}")
         
         return policies
 
@@ -228,7 +243,10 @@ class PolicyStore:
                 self.policy_path.unlink()
             tmp_path.rename(self.policy_path)
             
+            logger.debug(f"Persisted {len(self._policies)} policies to {self.policy_path}")
+            
         except Exception as e:
+            logger.error(f"Failed to persist policy store to {self.policy_path}: {e}", exc_info=True)
             raise FileWriteError(
                 f"Failed to persist policy store to {self.policy_path}: {e}"
             ) from e
@@ -264,11 +282,12 @@ class PolicyStore:
             backup_path = Path(f"{self.policy_path}.bak.1")
             shutil.copy2(self.policy_path, backup_path)
             
+            logger.debug(f"Created backup of policy store at {backup_path}")
+            
         except Exception as e:
             # Log warning but don't fail the operation
             # Backup failure shouldn't prevent writes
-            import logging
-            logging.warning(f"Failed to create backup of policy store: {e}")
+            logger.warning(f"Failed to create backup of policy store: {e}")
 
     def _load(self) -> None:
         """
@@ -293,12 +312,16 @@ class PolicyStore:
                 if policy.agent_id not in self._agent_policies:
                     self._agent_policies[policy.agent_id] = []
                 self._agent_policies[policy.agent_id].append(policy.policy_id)
+            
+            logger.debug(f"Loaded {len(self._policies)} policies from {self.policy_path}")
                 
         except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse policy store JSON from {self.policy_path}: {e}", exc_info=True)
             raise FileReadError(
                 f"Failed to parse policy store JSON from {self.policy_path}: {e}"
             ) from e
         except Exception as e:
+            logger.error(f"Failed to load policy store from {self.policy_path}: {e}", exc_info=True)
             raise FileReadError(
                 f"Failed to load policy store from {self.policy_path}: {e}"
             ) from e
@@ -340,6 +363,7 @@ class PolicyEvaluator:
         """
         self.policy_store = policy_store
         self.ledger_query = ledger_query
+        logger.info("PolicyEvaluator initialized")
 
     def check_budget(self, agent_id: str, current_time: Optional[datetime] = None) -> PolicyDecision:
         """
@@ -368,6 +392,7 @@ class PolicyEvaluator:
             # 1. Get policies for agent (fail closed if none)
             policies = self.policy_store.get_policies(agent_id)
             if not policies:
+                logger.info(f"Budget check denied for agent {agent_id}: No active policy found")
                 return PolicyDecision(
                     allowed=False,
                     reason=f"No active policy found for agent '{agent_id}'"
@@ -390,8 +415,16 @@ class PolicyEvaluator:
             # 4. Query ledger for spending in window
             try:
                 spending = self.ledger_query.sum_spending(agent_id, window_start, window_end)
+                logger.debug(
+                    f"Current spending for agent {agent_id}: {spending} {policy.currency} "
+                    f"(window: {window_start} to {window_end})"
+                )
             except Exception as e:
                 # Fail closed on ledger query error
+                logger.error(
+                    f"Failed to query spending for agent {agent_id}: {e}",
+                    exc_info=True
+                )
                 raise PolicyEvaluationError(
                     f"Failed to query spending for agent '{agent_id}': {e}"
                 ) from e
@@ -401,6 +434,10 @@ class PolicyEvaluator:
             
             # 6. Check against limit
             if spending >= limit:
+                logger.info(
+                    f"Budget check denied for agent {agent_id}: "
+                    f"Budget exceeded ({spending} >= {limit} {policy.currency})"
+                )
                 return PolicyDecision(
                     allowed=False,
                     reason=f"Budget exceeded: {spending} {policy.currency} >= {limit} {policy.currency}",
@@ -409,6 +446,10 @@ class PolicyEvaluator:
             
             # 7. Allow with remaining budget
             remaining = limit - spending
+            logger.info(
+                f"Budget check allowed for agent {agent_id}: "
+                f"Within budget (spent={spending}, limit={limit}, remaining={remaining} {policy.currency})"
+            )
             return PolicyDecision(
                 allowed=True,
                 reason="Within budget",
@@ -420,6 +461,10 @@ class PolicyEvaluator:
             raise
         except Exception as e:
             # Fail closed on any unexpected error
+            logger.error(
+                f"Critical error during policy evaluation for agent {agent_id}: {e}",
+                exc_info=True
+            )
             raise PolicyEvaluationError(
                 f"Critical error during policy evaluation for agent '{agent_id}': {e}"
             ) from e
