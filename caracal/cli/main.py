@@ -160,6 +160,19 @@ backup.add_command(backup_restore, name='restore')
 backup.add_command(backup_list, name='list')
 
 
+@cli.group()
+def delegation():
+    """Manage delegation tokens."""
+    pass
+
+
+# Import and register delegation commands
+from caracal.cli.delegation import generate, list_tokens, validate
+delegation.add_command(generate)
+delegation.add_command(list_tokens, name='list')
+delegation.add_command(validate)
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):

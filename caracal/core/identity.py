@@ -64,16 +64,18 @@ class AgentRegistry:
     Implements atomic write operations and rolling backups.
     """
 
-    def __init__(self, registry_path: str, backup_count: int = 3):
+    def __init__(self, registry_path: str, backup_count: int = 3, delegation_token_manager=None):
         """
         Initialize AgentRegistry.
         
         Args:
             registry_path: Path to the agent registry JSON file
             backup_count: Number of rolling backups to maintain (default: 3)
+            delegation_token_manager: Optional DelegationTokenManager for generating delegation tokens
         """
         self.registry_path = Path(registry_path)
         self.backup_count = backup_count
+        self.delegation_token_manager = delegation_token_manager
         self._agents: Dict[str, AgentIdentity] = {}
         self._names: Dict[str, str] = {}  # name -> agent_id mapping for uniqueness
         
@@ -92,7 +94,8 @@ class AgentRegistry:
         name: str, 
         owner: str, 
         metadata: Optional[Dict[str, Any]] = None,
-        parent_agent_id: Optional[str] = None
+        parent_agent_id: Optional[str] = None,
+        generate_keys: bool = True
     ) -> AgentIdentity:
         """
         Register a new agent with unique identity.
@@ -102,6 +105,7 @@ class AgentRegistry:
             owner: Owner identifier
             metadata: Optional extensible metadata
             parent_agent_id: Optional parent agent ID for hierarchical relationships
+            generate_keys: Whether to generate ECDSA key pair for delegation tokens (default: True)
             
         Returns:
             AgentIdentity: The newly created agent identity
@@ -129,13 +133,28 @@ class AgentRegistry:
         # Generate UUID v4 for agent ID
         agent_id = str(uuid.uuid4())
         
+        # Initialize metadata
+        if metadata is None:
+            metadata = {}
+        
+        # Generate ECDSA key pair if requested and delegation_token_manager available
+        if generate_keys and self.delegation_token_manager is not None:
+            try:
+                private_key_pem, public_key_pem = self.delegation_token_manager.generate_key_pair()
+                metadata["private_key_pem"] = private_key_pem.decode('utf-8')
+                metadata["public_key_pem"] = public_key_pem.decode('utf-8')
+                logger.debug(f"Generated ECDSA key pair for agent {agent_id}")
+            except Exception as e:
+                logger.warning(f"Failed to generate key pair for agent {agent_id}: {e}")
+                # Continue without keys - not critical for agent registration
+        
         # Create agent identity
         agent = AgentIdentity(
             agent_id=agent_id,
             name=name,
             owner=owner,
             created_at=datetime.utcnow().isoformat() + "Z",
-            metadata=metadata or {},
+            metadata=metadata,
             parent_agent_id=parent_agent_id
         )
         
@@ -223,6 +242,92 @@ class AgentRegistry:
         
         logger.debug(f"Found {len(descendants)} total descendants for agent {agent_id}")
         return descendants
+
+    def generate_delegation_token(
+        self,
+        parent_agent_id: str,
+        child_agent_id: str,
+        spending_limit: float,
+        currency: str = "USD",
+        expiration_seconds: int = 86400,
+        allowed_operations: Optional[List[str]] = None
+    ) -> Optional[str]:
+        """
+        Generate a delegation token for a child agent.
+        
+        Args:
+            parent_agent_id: Parent agent ID (issuer)
+            child_agent_id: Child agent ID (subject)
+            spending_limit: Maximum spending allowed
+            currency: Currency code (default: "USD")
+            expiration_seconds: Token validity duration (default: 86400 = 24 hours)
+            allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
+            
+        Returns:
+            JWT token string, or None if delegation_token_manager not available
+            
+        Raises:
+            AgentNotFoundError: If parent or child agent does not exist
+        """
+        if self.delegation_token_manager is None:
+            logger.warning("Cannot generate delegation token: DelegationTokenManager not available")
+            return None
+        
+        # Validate agents exist
+        parent = self.get_agent(parent_agent_id)
+        if parent is None:
+            raise AgentNotFoundError(f"Parent agent with ID '{parent_agent_id}' does not exist")
+        
+        child = self.get_agent(child_agent_id)
+        if child is None:
+            raise AgentNotFoundError(f"Child agent with ID '{child_agent_id}' does not exist")
+        
+        # Validate parent-child relationship
+        if child.parent_agent_id != parent_agent_id:
+            logger.warning(
+                f"Agent {child_agent_id} is not a child of {parent_agent_id} "
+                f"(parent is {child.parent_agent_id})"
+            )
+        
+        # Generate token
+        from decimal import Decimal
+        from uuid import UUID
+        
+        token = self.delegation_token_manager.generate_token(
+            parent_agent_id=UUID(parent_agent_id),
+            child_agent_id=UUID(child_agent_id),
+            spending_limit=Decimal(str(spending_limit)),
+            currency=currency,
+            expiration_seconds=expiration_seconds,
+            allowed_operations=allowed_operations
+        )
+        
+        # Store token metadata in child agent
+        if "delegation_tokens" not in child.metadata:
+            child.metadata["delegation_tokens"] = []
+        
+        child.metadata["delegation_tokens"].append({
+            "token_id": token[:20] + "...",  # Store truncated token for reference
+            "parent_agent_id": parent_agent_id,
+            "spending_limit": spending_limit,
+            "currency": currency,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "expires_in_seconds": expiration_seconds
+        })
+        
+        # Persist updated metadata
+        try:
+            self._persist()
+        except (OSError, IOError) as e:
+            logger.error(f"Failed to persist delegation token metadata: {e}", exc_info=True)
+            # Don't fail - token is still valid even if metadata not persisted
+        
+        logger.info(
+            f"Generated delegation token: parent={parent_agent_id}, child={child_agent_id}, "
+            f"limit={spending_limit} {currency}"
+        )
+        
+        return token
 
     @retry_on_transient_failure(max_retries=3, base_delay=0.1, backoff_factor=2.0)
     def _persist(self) -> None:
