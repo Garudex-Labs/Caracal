@@ -17,6 +17,7 @@ import logging
 import ssl
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional, Dict, Any
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from fastapi.responses import JSONResponse
 
 from caracal.gateway.auth import Authenticator, AuthenticationMethod, AuthenticationResult
 from caracal.gateway.replay_protection import ReplayProtection, ReplayCheckResult
+from caracal.gateway.cache import PolicyCache, PolicyCacheConfig, CachedPolicy
 from caracal.core.policy import PolicyEvaluator, PolicyDecision
 from caracal.core.metering import MeteringCollector
 from caracal.exceptions import (
@@ -56,6 +58,9 @@ class GatewayConfig:
         timestamp_window_seconds: Maximum timestamp age in seconds (default: 300)
         request_timeout_seconds: Timeout for forwarded requests (default: 30)
         max_request_size_mb: Maximum request body size in MB (default: 10)
+        enable_policy_cache: Enable policy cache for degraded mode (default: True)
+        policy_cache_ttl: TTL for cached policies in seconds (default: 60)
+        policy_cache_max_size: Maximum number of cached policies (default: 10000)
     """
     listen_address: str = "0.0.0.0:8443"
     tls_cert_file: Optional[str] = None
@@ -70,6 +75,9 @@ class GatewayConfig:
     timestamp_window_seconds: int = 300
     request_timeout_seconds: int = 30
     max_request_size_mb: int = 10
+    enable_policy_cache: bool = True
+    policy_cache_ttl: int = 60
+    policy_cache_max_size: int = 10000
 
 
 class GatewayProxy:
@@ -89,7 +97,8 @@ class GatewayProxy:
         authenticator: Authenticator,
         policy_evaluator: PolicyEvaluator,
         metering_collector: MeteringCollector,
-        replay_protection: Optional[ReplayProtection] = None
+        replay_protection: Optional[ReplayProtection] = None,
+        policy_cache: Optional[PolicyCache] = None
     ):
         """
         Initialize Gateway Proxy.
@@ -100,12 +109,27 @@ class GatewayProxy:
             policy_evaluator: PolicyEvaluator for budget checks
             metering_collector: MeteringCollector for final charges
             replay_protection: Optional ReplayProtection for replay attack prevention
+            policy_cache: Optional PolicyCache for degraded mode operation
         """
         self.config = config
         self.authenticator = authenticator
         self.policy_evaluator = policy_evaluator
         self.metering_collector = metering_collector
         self.replay_protection = replay_protection
+        
+        # Initialize policy cache if enabled and not provided
+        if config.enable_policy_cache and policy_cache is None:
+            cache_config = PolicyCacheConfig(
+                ttl_seconds=config.policy_cache_ttl,
+                max_size=config.policy_cache_max_size
+            )
+            self.policy_cache = PolicyCache(cache_config)
+            logger.info(
+                f"Initialized policy cache: ttl={cache_config.ttl_seconds}s, "
+                f"max_size={cache_config.max_size}"
+            )
+        else:
+            self.policy_cache = policy_cache
         
         # Create FastAPI app
         self.app = FastAPI(
@@ -129,10 +153,12 @@ class GatewayProxy:
         self._denied_count = 0
         self._auth_failures = 0
         self._replay_blocks = 0
+        self._degraded_mode_count = 0
         
         logger.info(
             f"Initialized GatewayProxy with auth_mode={config.auth_mode}, "
-            f"replay_protection={replay_protection is not None}"
+            f"replay_protection={replay_protection is not None}, "
+            f"policy_cache={self.policy_cache is not None}"
         )
     
     def _register_routes(self):
@@ -156,11 +182,25 @@ class GatewayProxy:
                 "requests_denied": self._denied_count,
                 "auth_failures": self._auth_failures,
                 "replay_blocks": self._replay_blocks,
+                "degraded_mode_requests": self._degraded_mode_count,
             }
             
             # Add replay protection stats if available
             if self.replay_protection:
                 stats["replay_protection"] = self.replay_protection.get_stats()
+            
+            # Add policy cache stats if available
+            if self.policy_cache:
+                cache_stats = self.policy_cache.get_stats()
+                stats["policy_cache"] = {
+                    "hit_count": cache_stats.hit_count,
+                    "miss_count": cache_stats.miss_count,
+                    "hit_rate": cache_stats.hit_rate,
+                    "size": cache_stats.size,
+                    "max_size": cache_stats.max_size,
+                    "eviction_count": cache_stats.eviction_count,
+                    "invalidation_count": cache_stats.invalidation_count,
+                }
             
             return stats
         
@@ -247,20 +287,95 @@ class GatewayProxy:
                     logger.warning(f"Invalid estimated cost header: {estimated_cost_str}, error: {e}")
             
             # Call PolicyEvaluator to check budget
+            # If policy service is unavailable, use cached policy for degraded mode
+            policy_decision = None
+            used_cache = False
+            cache_age_seconds = None
+            
             try:
                 policy_decision = self.policy_evaluator.check_budget(
                     agent_id=str(agent.agent_id),
                     estimated_cost=estimated_cost
                 )
+                
+                # Cache the policy decision for future degraded mode use
+                if self.policy_cache and policy_decision.allowed:
+                    # Get the policy from policy store to cache it
+                    try:
+                        policies = self.policy_evaluator.policy_store.get_policies(str(agent.agent_id))
+                        if policies:
+                            await self.policy_cache.put(str(agent.agent_id), policies[0])
+                    except Exception as cache_error:
+                        logger.warning(f"Failed to cache policy for agent {agent.agent_id}: {cache_error}")
+                
             except PolicyEvaluationError as e:
-                logger.error(f"Policy evaluation failed for agent {agent.agent_id}: {e}")
-                return JSONResponse(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    content={
-                        "error": "policy_evaluation_failed",
-                        "message": str(e)
-                    }
+                # Policy service unavailable - try degraded mode with cache
+                logger.warning(
+                    f"Policy evaluation failed for agent {agent.agent_id}: {e}, "
+                    f"attempting degraded mode with cache"
                 )
+                
+                if self.policy_cache:
+                    cached_policy = await self.policy_cache.get(str(agent.agent_id))
+                    
+                    if cached_policy:
+                        # Use cached policy for degraded mode operation
+                        used_cache = True
+                        self._degraded_mode_count += 1
+                        cache_age_seconds = (datetime.utcnow() - cached_policy.cached_at).total_seconds()
+                        
+                        logger.warning(
+                            f"Using cached policy for agent {agent.agent_id} in degraded mode, "
+                            f"cache_age={cache_age_seconds:.1f}s"
+                        )
+                        
+                        # Perform simplified budget check with cached policy
+                        # Note: This doesn't check current spending or provisional charges
+                        # It's a best-effort degraded mode operation
+                        from decimal import Decimal
+                        limit = Decimal(cached_policy.policy.limit_amount)
+                        
+                        # Allow request if estimated cost is within limit
+                        # This is a simplified check - we can't query current spending in degraded mode
+                        if estimated_cost is None or estimated_cost <= limit:
+                            policy_decision = PolicyDecision(
+                                allowed=True,
+                                reason="Within budget (degraded mode - cached policy)",
+                                remaining_budget=limit - (estimated_cost if estimated_cost else Decimal('0')),
+                                provisional_charge_id=None  # No provisional charge in degraded mode
+                            )
+                        else:
+                            policy_decision = PolicyDecision(
+                                allowed=False,
+                                reason=f"Estimated cost {estimated_cost} exceeds cached policy limit {limit} (degraded mode)",
+                                remaining_budget=Decimal('0')
+                            )
+                    else:
+                        # No cached policy available - fail closed
+                        logger.error(
+                            f"Policy evaluation failed and no cached policy available for agent {agent.agent_id}, "
+                            f"failing closed"
+                        )
+                        return JSONResponse(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            content={
+                                "error": "policy_service_unavailable",
+                                "message": "Policy service unavailable and no cached policy available (fail-closed)"
+                            }
+                        )
+                else:
+                    # Policy cache not enabled - fail closed
+                    logger.error(
+                        f"Policy evaluation failed for agent {agent.agent_id} and policy cache not enabled, "
+                        f"failing closed"
+                    )
+                    return JSONResponse(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        content={
+                            "error": "policy_service_unavailable",
+                            "message": "Policy service unavailable and cache not enabled (fail-closed)"
+                        }
+                    )
             
             # Return 403 on budget denial (Requirement 1.5)
             if not policy_decision.allowed:
@@ -378,13 +493,23 @@ class GatewayProxy:
             duration_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"Request completed for agent {agent.agent_id}, "
-                f"status={response.status_code}, duration={duration_ms:.2f}ms"
+                f"status={response.status_code}, duration={duration_ms:.2f}ms, "
+                f"degraded_mode={used_cache}"
             )
+            
+            # Prepare response headers
+            response_headers = dict(response.headers)
+            
+            # Add degraded mode headers if cache was used (Requirement 16.6)
+            if used_cache and cache_age_seconds is not None:
+                response_headers["X-Caracal-Degraded-Mode"] = "true"
+                response_headers["X-Caracal-Cache-Age"] = str(int(cache_age_seconds))
+                response_headers["X-Caracal-Cache-Warning"] = "Policy evaluated using cached data due to service unavailability"
             
             return Response(
                 content=response.content,
                 status_code=response.status_code,
-                headers=dict(response.headers),
+                headers=response_headers,
                 media_type=response.headers.get("content-type")
             )
             
