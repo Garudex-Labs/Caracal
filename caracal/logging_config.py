@@ -39,11 +39,11 @@ def setup_logging(
     # Remove existing handlers
     root_logger.handlers.clear()
     
-    # Add stdout handler
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setLevel(numeric_level)
-    stdout_handler.setFormatter(formatter)
-    root_logger.addHandler(stdout_handler)
+    # Add stderr handler (use stderr to avoid interfering with JSON output on stdout)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(numeric_level)
+    stderr_handler.setFormatter(formatter)
+    root_logger.addHandler(stderr_handler)
     
     # Add file handler if log_file specified
     if log_file is not None:

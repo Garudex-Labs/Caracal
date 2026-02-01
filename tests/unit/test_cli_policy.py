@@ -245,8 +245,9 @@ logging:
             '--limit', '100.00'
         ])
         
-        # List policies in JSON format
-        result = runner.invoke(cli, [
+        # List policies in JSON format (use mix_stderr=False to separate logs from JSON)
+        runner_json = CliRunner(mix_stderr=False)
+        result = runner_json.invoke(cli, [
             '--config', config_file,
             'policy', 'list',
             '--format', 'json'
@@ -354,8 +355,9 @@ logging:
             '--limit', '100.00'
         ])
         
-        # Get policies in JSON format
-        result = runner.invoke(cli, [
+        # Get policies in JSON format (use mix_stderr=False to separate logs from JSON)
+        runner_json = CliRunner(mix_stderr=False)
+        result = runner_json.invoke(cli, [
             '--config', config_file,
             'policy', 'get',
             '--agent-id', agent_id,

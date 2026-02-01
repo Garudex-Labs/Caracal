@@ -171,7 +171,13 @@ class PolicyStore:
         self._agent_policies[agent_id].append(policy_id)
         
         # Persist to disk
-        self._persist()
+        try:
+            self._persist()
+        except (OSError, IOError) as e:
+            logger.error(f"Failed to persist policy store to {self.policy_path}: {e}", exc_info=True)
+            raise FileWriteError(
+                f"Failed to persist policy store to {self.policy_path}: {e}"
+            ) from e
         
         logger.info(
             f"Created policy: id={policy_id}, agent_id={agent_id}, "
@@ -228,35 +234,28 @@ class PolicyStore:
         - Fails permanently after max retries
         
         Raises:
-            FileWriteError: If write operation fails after all retries
+            OSError: If write operation fails after all retries
         """
-        try:
-            # Create backup before writing
-            self._create_backup()
-            
-            # Prepare data for serialization
-            data = [policy.to_dict() for policy in self._policies.values()]
-            
-            # Write to temporary file
-            tmp_path = self.policy_path.with_suffix('.tmp')
-            with open(tmp_path, 'w') as f:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())  # Force write to disk
-            
-            # Atomic rename (POSIX guarantees atomicity)
-            # On Windows, may need to remove target first
-            if os.name == 'nt' and self.policy_path.exists():
-                self.policy_path.unlink()
-            tmp_path.rename(self.policy_path)
-            
-            logger.debug(f"Persisted {len(self._policies)} policies to {self.policy_path}")
-            
-        except Exception as e:
-            logger.error(f"Failed to persist policy store to {self.policy_path}: {e}", exc_info=True)
-            raise FileWriteError(
-                f"Failed to persist policy store to {self.policy_path}: {e}"
-            ) from e
+        # Create backup before writing
+        self._create_backup()
+        
+        # Prepare data for serialization
+        data = [policy.to_dict() for policy in self._policies.values()]
+        
+        # Write to temporary file
+        tmp_path = self.policy_path.with_suffix('.tmp')
+        with open(tmp_path, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())  # Force write to disk
+        
+        # Atomic rename (POSIX guarantees atomicity)
+        # On Windows, may need to remove target first
+        if os.name == 'nt' and self.policy_path.exists():
+            self.policy_path.unlink()
+        tmp_path.rename(self.policy_path)
+        
+        logger.debug(f"Persisted {len(self._policies)} policies to {self.policy_path}")
 
     def _create_backup(self) -> None:
         """

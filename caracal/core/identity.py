@@ -129,7 +129,13 @@ class AgentRegistry:
         self._names[name] = agent_id
         
         # Persist to disk
-        self._persist()
+        try:
+            self._persist()
+        except (OSError, IOError) as e:
+            logger.error(f"Failed to persist agent registry to {self.registry_path}: {e}", exc_info=True)
+            raise FileWriteError(
+                f"Failed to persist agent registry to {self.registry_path}: {e}"
+            ) from e
         
         logger.info(f"Registered agent: id={agent_id}, name={name}, owner={owner}")
         
@@ -178,35 +184,28 @@ class AgentRegistry:
         - Fails permanently after max retries
         
         Raises:
-            FileWriteError: If write operation fails after all retries
+            OSError: If write operation fails after all retries
         """
-        try:
-            # Create backup before writing
-            self._create_backup()
-            
-            # Prepare data for serialization
-            data = [agent.to_dict() for agent in self._agents.values()]
-            
-            # Write to temporary file
-            tmp_path = self.registry_path.with_suffix('.tmp')
-            with open(tmp_path, 'w') as f:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())  # Force write to disk
-            
-            # Atomic rename (POSIX guarantees atomicity)
-            # On Windows, may need to remove target first
-            if os.name == 'nt' and self.registry_path.exists():
-                self.registry_path.unlink()
-            tmp_path.rename(self.registry_path)
-            
-            logger.debug(f"Persisted {len(self._agents)} agents to {self.registry_path}")
-            
-        except Exception as e:
-            logger.error(f"Failed to persist agent registry to {self.registry_path}: {e}", exc_info=True)
-            raise FileWriteError(
-                f"Failed to persist agent registry to {self.registry_path}: {e}"
-            ) from e
+        # Create backup before writing
+        self._create_backup()
+        
+        # Prepare data for serialization
+        data = [agent.to_dict() for agent in self._agents.values()]
+        
+        # Write to temporary file
+        tmp_path = self.registry_path.with_suffix('.tmp')
+        with open(tmp_path, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())  # Force write to disk
+        
+        # Atomic rename (POSIX guarantees atomicity)
+        # On Windows, may need to remove target first
+        if os.name == 'nt' and self.registry_path.exists():
+            self.registry_path.unlink()
+        tmp_path.rename(self.registry_path)
+        
+        logger.debug(f"Persisted {len(self._agents)} agents to {self.registry_path}")
 
     def _create_backup(self) -> None:
         """
