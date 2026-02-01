@@ -114,6 +114,13 @@ def policy():
     pass
 
 
+# Import and register policy commands
+from caracal.cli.policy import create, get, list_policies
+policy.add_command(create)
+policy.add_command(list_policies, name='list')
+policy.add_command(get)
+
+
 @cli.group()
 def ledger():
     """Query and manage the ledger."""
