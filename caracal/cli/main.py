@@ -101,6 +101,13 @@ def agent():
     pass
 
 
+# Import and register agent commands
+from caracal.cli.agent import get, list_agents, register
+agent.add_command(register)
+agent.add_command(list_agents, name='list')
+agent.add_command(get)
+
+
 @cli.group()
 def policy():
     """Manage budget policies."""
