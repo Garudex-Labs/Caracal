@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from caracal.exceptions import (
     FileReadError,
@@ -331,3 +331,223 @@ class LedgerWriter:
             # Log warning but don't fail the operation
             # Backup failure shouldn't prevent writes
             logger.warning(f"Failed to create backup of ledger: {e}")
+
+
+
+class LedgerQuery:
+    """
+    Query service for the immutable ledger.
+    
+    Provides filtering and aggregation capabilities for ledger events.
+    Uses sequential scan of JSON Lines file (v0.1 approach).
+    """
+
+    def __init__(self, ledger_path: str):
+        """
+        Initialize LedgerQuery.
+        
+        Args:
+            ledger_path: Path to the ledger file (JSON Lines format)
+        """
+        self.ledger_path = Path(ledger_path)
+        
+        # Ensure ledger file exists
+        if not self.ledger_path.exists():
+            # Create empty ledger file if it doesn't exist
+            self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            self.ledger_path.touch()
+            logger.info(f"Created empty ledger file at {self.ledger_path}")
+
+    def get_events(
+        self,
+        agent_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        resource_type: Optional[str] = None,
+    ) -> List[LedgerEvent]:
+        """
+        Query events with optional filters.
+        
+        Performs sequential scan of the ledger file and applies filters.
+        All filters are optional and can be combined.
+        
+        Args:
+            agent_id: Filter by agent ID (optional)
+            start_time: Filter events on or after this time (optional)
+            end_time: Filter events before or at this time (optional)
+            resource_type: Filter by resource type (optional)
+            
+        Returns:
+            List of LedgerEvent objects matching the filters
+            
+        Raises:
+            LedgerReadError: If ledger file cannot be read
+        """
+        events = []
+        
+        try:
+            with open(self.ledger_path, 'r') as f:
+                for line_num, line in enumerate(f, start=1):
+                    line = line.strip()
+                    if not line:
+                        # Skip empty lines
+                        continue
+                    
+                    try:
+                        # Parse JSON line
+                        event_data = json.loads(line)
+                        event = LedgerEvent.from_dict(event_data)
+                        
+                        # Apply filters
+                        if agent_id is not None and event.agent_id != agent_id:
+                            continue
+                        
+                        if resource_type is not None and event.resource_type != resource_type:
+                            continue
+                        
+                        # Parse timestamp for time-based filtering
+                        # Timestamps are in ISO 8601 format with 'Z' suffix
+                        event_timestamp = datetime.fromisoformat(
+                            event.timestamp.replace('Z', '+00:00')
+                        )
+                        
+                        # Make comparison timezone-aware if needed
+                        if start_time is not None:
+                            # If start_time is naive, make it UTC-aware for comparison
+                            compare_start = start_time
+                            if start_time.tzinfo is None:
+                                from datetime import timezone
+                                compare_start = start_time.replace(tzinfo=timezone.utc)
+                            if event_timestamp < compare_start:
+                                continue
+                        
+                        if end_time is not None:
+                            # If end_time is naive, make it UTC-aware for comparison
+                            compare_end = end_time
+                            if end_time.tzinfo is None:
+                                from datetime import timezone
+                                compare_end = end_time.replace(tzinfo=timezone.utc)
+                            if event_timestamp > compare_end:
+                                continue
+                        
+                        # Event matches all filters
+                        events.append(event)
+                        
+                    except json.JSONDecodeError as e:
+                        logger.warning(
+                            f"Skipping malformed JSON at line {line_num} in {self.ledger_path}: {e}"
+                        )
+                        continue
+                    except Exception as e:
+                        logger.warning(
+                            f"Error processing event at line {line_num} in {self.ledger_path}: {e}"
+                        )
+                        continue
+            
+            logger.debug(
+                f"Query returned {len(events)} events "
+                f"(agent_id={agent_id}, start_time={start_time}, "
+                f"end_time={end_time}, resource_type={resource_type})"
+            )
+            
+            return events
+            
+        except FileNotFoundError:
+            # Empty ledger, return empty list
+            logger.debug(f"Ledger file not found at {self.ledger_path}, returning empty list")
+            return []
+        except Exception as e:
+            raise LedgerReadError(
+                f"Failed to read ledger from {self.ledger_path}: {e}"
+            ) from e
+
+    def sum_spending(
+        self,
+        agent_id: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> Decimal:
+        """
+        Calculate total spending for an agent in a time window.
+        
+        Args:
+            agent_id: Agent identifier
+            start_time: Start of time window (inclusive)
+            end_time: End of time window (inclusive)
+            
+        Returns:
+            Total spending as Decimal
+            
+        Raises:
+            LedgerReadError: If ledger file cannot be read
+        """
+        # Get all events for the agent in the time window
+        events = self.get_events(
+            agent_id=agent_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        
+        # Sum the costs
+        total = Decimal('0')
+        for event in events:
+            try:
+                cost = Decimal(event.cost)
+                total += cost
+            except Exception as e:
+                logger.warning(
+                    f"Failed to parse cost '{event.cost}' for event {event.event_id}: {e}"
+                )
+                continue
+        
+        logger.debug(
+            f"Total spending for agent {agent_id} from {start_time} to {end_time}: {total}"
+        )
+        
+        return total
+
+    def aggregate_by_agent(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> Dict[str, Decimal]:
+        """
+        Aggregate spending by agent for a time window.
+        
+        Args:
+            start_time: Start of time window (inclusive)
+            end_time: End of time window (inclusive)
+            
+        Returns:
+            Dictionary mapping agent_id to total spending
+            
+        Raises:
+            LedgerReadError: If ledger file cannot be read
+        """
+        # Get all events in the time window
+        events = self.get_events(
+            start_time=start_time,
+            end_time=end_time,
+        )
+        
+        # Aggregate by agent
+        aggregation: Dict[str, Decimal] = {}
+        for event in events:
+            try:
+                cost = Decimal(event.cost)
+                if event.agent_id in aggregation:
+                    aggregation[event.agent_id] += cost
+                else:
+                    aggregation[event.agent_id] = cost
+            except Exception as e:
+                logger.warning(
+                    f"Failed to parse cost '{event.cost}' for event {event.event_id}: {e}"
+                )
+                continue
+        
+        logger.debug(
+            f"Aggregated spending for {len(aggregation)} agents "
+            f"from {start_time} to {end_time}"
+        )
+        
+        return aggregation

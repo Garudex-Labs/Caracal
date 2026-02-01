@@ -300,3 +300,381 @@ class TestLedgerWriter:
             parsed = json.loads(line)
             assert "event_id" in parsed
             assert "agent_id" in parsed
+
+
+
+class TestLedgerQuery:
+    """Tests for LedgerQuery."""
+    
+    def test_ledger_query_initialization(self, temp_dir):
+        """Test initializing ledger query creates file if not exists."""
+        from caracal.core.ledger import LedgerQuery
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        query = LedgerQuery(str(ledger_path))
+        
+        assert ledger_path.exists()
+    
+    def test_get_events_empty_ledger(self, temp_dir):
+        """Test querying empty ledger returns empty list."""
+        from caracal.core.ledger import LedgerQuery
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        query = LedgerQuery(str(ledger_path))
+        
+        events = query.get_events()
+        
+        assert events == []
+    
+    def test_get_events_all(self, temp_dir):
+        """Test getting all events without filters."""
+        from caracal.core.ledger import LedgerQuery
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        # Add some events
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("100"),
+            cost=Decimal("1.00")
+        )
+        writer.append_event(
+            agent_id="agent-2",
+            resource_type="resource-2",
+            quantity=Decimal("200"),
+            cost=Decimal("2.00")
+        )
+        
+        # Query all events
+        query = LedgerQuery(str(ledger_path))
+        events = query.get_events()
+        
+        assert len(events) == 2
+        assert events[0].agent_id == "agent-1"
+        assert events[1].agent_id == "agent-2"
+    
+    def test_get_events_filter_by_agent_id(self, temp_dir):
+        """Test filtering events by agent ID."""
+        from caracal.core.ledger import LedgerQuery
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        # Add events for different agents
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("100"),
+            cost=Decimal("1.00")
+        )
+        writer.append_event(
+            agent_id="agent-2",
+            resource_type="resource-2",
+            quantity=Decimal("200"),
+            cost=Decimal("2.00")
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-3",
+            quantity=Decimal("300"),
+            cost=Decimal("3.00")
+        )
+        
+        # Query events for agent-1
+        query = LedgerQuery(str(ledger_path))
+        events = query.get_events(agent_id="agent-1")
+        
+        assert len(events) == 2
+        assert all(e.agent_id == "agent-1" for e in events)
+    
+    def test_get_events_filter_by_resource_type(self, temp_dir):
+        """Test filtering events by resource type."""
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        # Add events with different resource types
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("100"),
+            cost=Decimal("1.00")
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="openai.gpt4.output_tokens",
+            quantity=Decimal("200"),
+            cost=Decimal("2.00")
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("300"),
+            cost=Decimal("3.00")
+        )
+        
+        # Query events for specific resource type
+        query = LedgerQuery(str(ledger_path))
+        events = query.get_events(resource_type="openai.gpt4.input_tokens")
+        
+        assert len(events) == 2
+        assert all(e.resource_type == "openai.gpt4.input_tokens" for e in events)
+    
+    def test_get_events_filter_by_time_range(self, temp_dir):
+        """Test filtering events by time range."""
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime, timedelta
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        # Add events at different times
+        base_time = datetime(2024, 1, 15, 10, 0, 0)
+        
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("100"),
+            cost=Decimal("1.00"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-2",
+            quantity=Decimal("200"),
+            cost=Decimal("2.00"),
+            timestamp=base_time + timedelta(hours=1)
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-3",
+            quantity=Decimal("300"),
+            cost=Decimal("3.00"),
+            timestamp=base_time + timedelta(hours=2)
+        )
+        
+        # Query events in middle hour
+        query = LedgerQuery(str(ledger_path))
+        events = query.get_events(
+            start_time=base_time + timedelta(minutes=30),
+            end_time=base_time + timedelta(hours=1, minutes=30)
+        )
+        
+        assert len(events) == 1
+        assert events[0].resource_type == "resource-2"
+    
+    def test_get_events_combined_filters(self, temp_dir):
+        """Test combining multiple filters."""
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime, timedelta
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        base_time = datetime(2024, 1, 15, 10, 0, 0)
+        
+        # Add various events
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("100"),
+            cost=Decimal("1.00"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-2",
+            resource_type="resource-1",
+            quantity=Decimal("200"),
+            cost=Decimal("2.00"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-2",
+            quantity=Decimal("300"),
+            cost=Decimal("3.00"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("400"),
+            cost=Decimal("4.00"),
+            timestamp=base_time + timedelta(hours=2)
+        )
+        
+        # Query with multiple filters
+        query = LedgerQuery(str(ledger_path))
+        events = query.get_events(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            start_time=base_time - timedelta(hours=1),
+            end_time=base_time + timedelta(hours=1)
+        )
+        
+        assert len(events) == 1
+        assert events[0].agent_id == "agent-1"
+        assert events[0].resource_type == "resource-1"
+        assert events[0].cost == "1.00"
+    
+    def test_sum_spending(self, temp_dir):
+        """Test calculating total spending for an agent."""
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime, timedelta
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        base_time = datetime(2024, 1, 15, 10, 0, 0)
+        
+        # Add events for agent-1
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("100"),
+            cost=Decimal("1.50"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-2",
+            quantity=Decimal("200"),
+            cost=Decimal("2.75"),
+            timestamp=base_time + timedelta(hours=1)
+        )
+        writer.append_event(
+            agent_id="agent-2",
+            resource_type="resource-3",
+            quantity=Decimal("300"),
+            cost=Decimal("5.00"),
+            timestamp=base_time
+        )
+        
+        # Calculate spending for agent-1
+        query = LedgerQuery(str(ledger_path))
+        total = query.sum_spending(
+            agent_id="agent-1",
+            start_time=base_time - timedelta(hours=1),
+            end_time=base_time + timedelta(hours=2)
+        )
+        
+        assert total == Decimal("4.25")  # 1.50 + 2.75
+    
+    def test_sum_spending_empty_result(self, temp_dir):
+        """Test sum_spending returns zero for no matching events."""
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        # Add event for agent-1
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("100"),
+            cost=Decimal("1.00")
+        )
+        
+        # Query for different agent
+        query = LedgerQuery(str(ledger_path))
+        total = query.sum_spending(
+            agent_id="agent-2",
+            start_time=datetime(2024, 1, 1),
+            end_time=datetime(2024, 12, 31)
+        )
+        
+        assert total == Decimal("0")
+    
+    def test_aggregate_by_agent(self, temp_dir):
+        """Test aggregating spending by agent."""
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime, timedelta
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        writer = LedgerWriter(str(ledger_path))
+        
+        base_time = datetime(2024, 1, 15, 10, 0, 0)
+        
+        # Add events for multiple agents
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-1",
+            quantity=Decimal("100"),
+            cost=Decimal("1.00"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-2",
+            resource_type="resource-2",
+            quantity=Decimal("200"),
+            cost=Decimal("2.00"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-1",
+            resource_type="resource-3",
+            quantity=Decimal("300"),
+            cost=Decimal("3.00"),
+            timestamp=base_time
+        )
+        writer.append_event(
+            agent_id="agent-3",
+            resource_type="resource-4",
+            quantity=Decimal("400"),
+            cost=Decimal("4.00"),
+            timestamp=base_time
+        )
+        
+        # Aggregate spending
+        query = LedgerQuery(str(ledger_path))
+        aggregation = query.aggregate_by_agent(
+            start_time=base_time - timedelta(hours=1),
+            end_time=base_time + timedelta(hours=1)
+        )
+        
+        assert len(aggregation) == 3
+        assert aggregation["agent-1"] == Decimal("4.00")  # 1.00 + 3.00
+        assert aggregation["agent-2"] == Decimal("2.00")
+        assert aggregation["agent-3"] == Decimal("4.00")
+    
+    def test_aggregate_by_agent_empty_result(self, temp_dir):
+        """Test aggregate_by_agent returns empty dict for no matching events."""
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        query = LedgerQuery(str(ledger_path))
+        
+        # Query empty ledger
+        aggregation = query.aggregate_by_agent(
+            start_time=datetime(2024, 1, 1),
+            end_time=datetime(2024, 12, 31)
+        )
+        
+        assert aggregation == {}
+    
+    def test_get_events_handles_malformed_json(self, temp_dir):
+        """Test that malformed JSON lines are skipped gracefully."""
+        from caracal.core.ledger import LedgerQuery
+        
+        ledger_path = temp_dir / "ledger.jsonl"
+        
+        # Write some valid and invalid JSON lines
+        with open(ledger_path, 'w') as f:
+            f.write('{"event_id":1,"agent_id":"agent-1","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"100","cost":"1.00","currency":"USD"}\n')
+            f.write('this is not valid json\n')
+            f.write('{"event_id":2,"agent_id":"agent-2","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"200","cost":"2.00","currency":"USD"}\n')
+        
+        # Query should skip malformed line and return valid events
+        query = LedgerQuery(str(ledger_path))
+        events = query.get_events()
+        
+        assert len(events) == 2
+        assert events[0].agent_id == "agent-1"
+        assert events[1].agent_id == "agent-2"
