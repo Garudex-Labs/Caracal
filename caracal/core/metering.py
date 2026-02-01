@@ -34,21 +34,24 @@ class MeteringCollector:
     - Look up prices in Pricebook
     - Calculate provisional charges (quantity * price)
     - Pass events to LedgerWriter
+    - Release provisional charges when final charges are created (v0.2)
     """
 
-    def __init__(self, pricebook: Pricebook, ledger_writer: LedgerWriter):
+    def __init__(self, pricebook: Pricebook, ledger_writer: LedgerWriter, provisional_charge_manager=None):
         """
         Initialize MeteringCollector.
         
         Args:
             pricebook: Pricebook instance for price lookups
             ledger_writer: LedgerWriter instance for persisting events
+            provisional_charge_manager: Optional ProvisionalChargeManager for v0.2 provisional charges
         """
         self.pricebook = pricebook
         self.ledger_writer = ledger_writer
+        self.provisional_charge_manager = provisional_charge_manager
         logger.info("MeteringCollector initialized")
 
-    def collect_event(self, event: MeteringEvent) -> None:
+    def collect_event(self, event: MeteringEvent, provisional_charge_id: Optional[str] = None) -> None:
         """
         Accept a metering event, calculate cost, and write to ledger.
         
@@ -56,10 +59,13 @@ class MeteringCollector:
         1. Validates the event
         2. Looks up the resource price
         3. Calculates the cost (quantity * price)
-        4. Writes the event to the ledger
+        4. Writes the event to the ledger with provisional_charge_id (v0.2)
+        5. Releases the provisional charge if provided (v0.2)
+        6. Adjusts budget for cost differences (v0.2)
         
         Args:
             event: MeteringEvent to collect
+            provisional_charge_id: Optional UUID of provisional charge to release (v0.2)
             
         Raises:
             InvalidMeteringEventError: If event validation fails
@@ -72,7 +78,7 @@ class MeteringCollector:
             # Calculate cost
             cost = self._calculate_cost(event.resource_type, event.quantity)
             
-            # Write to ledger
+            # Write to ledger with provisional_charge_id
             ledger_event = self.ledger_writer.append_event(
                 agent_id=event.agent_id,
                 resource_type=event.resource_type,
@@ -81,13 +87,50 @@ class MeteringCollector:
                 currency="USD",  # v0.1 only supports USD
                 metadata=event.metadata,
                 timestamp=event.timestamp,
+                provisional_charge_id=provisional_charge_id,  # v0.2
             )
             
             logger.info(
                 f"Collected metering event: agent_id={event.agent_id}, "
                 f"resource={event.resource_type}, quantity={event.quantity}, "
-                f"cost={cost} USD, event_id={ledger_event.event_id}"
+                f"cost={cost} USD, event_id={ledger_event.event_id}, "
+                f"provisional_charge_id={provisional_charge_id}"
             )
+            
+            # Release provisional charge if provided (v0.2)
+            if self.provisional_charge_manager is not None and provisional_charge_id is not None:
+                try:
+                    from uuid import UUID
+                    import asyncio
+                    
+                    # Convert provisional_charge_id string to UUID
+                    charge_uuid = UUID(provisional_charge_id)
+                    
+                    # Run async method in sync context
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(
+                            self.provisional_charge_manager.release_provisional_charge(
+                                charge_uuid, ledger_event.event_id
+                            )
+                        ).result()
+                    else:
+                        loop.run_until_complete(
+                            self.provisional_charge_manager.release_provisional_charge(
+                                charge_uuid, ledger_event.event_id
+                            )
+                        )
+                    
+                    logger.info(
+                        f"Released provisional charge {provisional_charge_id} for final charge {ledger_event.event_id}"
+                    )
+                except Exception as e:
+                    # Log error but don't fail the metering event
+                    # The provisional charge will be cleaned up by the background job
+                    logger.error(
+                        f"Failed to release provisional charge {provisional_charge_id}: {e}",
+                        exc_info=True
+                    )
             
         except InvalidMeteringEventError:
             # Re-raise validation errors (already logged in _validate_event)

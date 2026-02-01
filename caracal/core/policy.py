@@ -383,10 +383,12 @@ class PolicyDecision:
         allowed: Whether the action is allowed
         reason: Human-readable explanation for the decision
         remaining_budget: Remaining budget if allowed, None otherwise
+        provisional_charge_id: UUID of created provisional charge if allowed, None otherwise
     """
     allowed: bool
     reason: str
     remaining_budget: Optional[Decimal] = None
+    provisional_charge_id: Optional[str] = None  # UUID as string for v0.2 compatibility
 
 
 class PolicyEvaluator:
@@ -396,37 +398,43 @@ class PolicyEvaluator:
     Evaluates whether an agent is within budget by:
     1. Loading policies from PolicyStore
     2. Querying current spending from LedgerQuery
-    3. Comparing spending against policy limits
-    4. Implementing fail-closed semantics (deny on error or missing policy)
+    3. Querying active provisional charges from ProvisionalChargeManager
+    4. Comparing spending + reserved budget against policy limits
+    5. Creating provisional charge if allowed
+    6. Implementing fail-closed semantics (deny on error or missing policy)
     """
 
-    def __init__(self, policy_store: PolicyStore, ledger_query):
+    def __init__(self, policy_store: PolicyStore, ledger_query, provisional_charge_manager=None):
         """
         Initialize PolicyEvaluator.
         
         Args:
             policy_store: PolicyStore instance for loading policies
             ledger_query: LedgerQuery instance for querying spending
+            provisional_charge_manager: Optional ProvisionalChargeManager for v0.2 provisional charges
         """
         self.policy_store = policy_store
         self.ledger_query = ledger_query
+        self.provisional_charge_manager = provisional_charge_manager
         logger.info("PolicyEvaluator initialized")
 
-    def check_budget(self, agent_id: str, current_time: Optional[datetime] = None) -> PolicyDecision:
+    def check_budget(self, agent_id: str, estimated_cost: Optional[Decimal] = None, current_time: Optional[datetime] = None) -> PolicyDecision:
         """
         Check if agent is within budget.
         
         Implements fail-closed semantics:
         - Denies if no policy exists for agent
         - Denies if policy evaluation fails
-        - Denies if spending exceeds limit
+        - Denies if spending + reserved budget exceeds limit
+        - Creates provisional charge if allowed (v0.2 with ProvisionalChargeManager)
         
         Args:
             agent_id: Agent identifier
+            estimated_cost: Estimated cost for provisional charge (v0.2 only)
             current_time: Current time for time window calculation (defaults to UTC now)
             
         Returns:
-            PolicyDecision with allow/deny and reason
+            PolicyDecision with allow/deny, reason, and provisional_charge_id (v0.2)
             
         Raises:
             PolicyEvaluationError: If evaluation fails critically (fail-closed)
@@ -476,31 +484,123 @@ class PolicyEvaluator:
                     f"Failed to query spending for agent '{agent_id}': {e}"
                 ) from e
             
-            # 5. Get policy limit as Decimal
+            # 5. Query active provisional charges (v0.2 only)
+            reserved_budget = Decimal('0')
+            if self.provisional_charge_manager is not None:
+                try:
+                    # Import here to avoid circular dependency
+                    from uuid import UUID
+                    import asyncio
+                    
+                    # Convert agent_id string to UUID for v0.2
+                    agent_uuid = UUID(agent_id)
+                    
+                    # Run async method in sync context
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If we're already in an async context, create a new task
+                        reserved_budget = asyncio.create_task(
+                            self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
+                        ).result()
+                    else:
+                        reserved_budget = loop.run_until_complete(
+                            self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
+                        )
+                    
+                    logger.debug(
+                        f"Reserved budget for agent {agent_id}: {reserved_budget} {policy.currency}"
+                    )
+                except Exception as e:
+                    # Fail closed on provisional charge query error
+                    logger.error(
+                        f"Failed to query reserved budget for agent {agent_id}: {e}",
+                        exc_info=True
+                    )
+                    raise PolicyEvaluationError(
+                        f"Failed to query reserved budget for agent '{agent_id}': {e}"
+                    ) from e
+            
+            # 6. Get policy limit as Decimal
             limit = policy.get_limit_decimal()
             
-            # 6. Check against limit
-            if spending >= limit:
+            # 7. Calculate available budget (limit - spending - reserved)
+            available = limit - spending - reserved_budget
+            
+            # 8. Check if estimated cost fits (if provided)
+            if estimated_cost is not None and estimated_cost > available:
                 logger.info(
                     f"Budget check denied for agent {agent_id}: "
-                    f"Budget exceeded ({spending} >= {limit} {policy.currency})"
+                    f"Insufficient budget (need {estimated_cost}, available {available} {policy.currency})"
                 )
                 return PolicyDecision(
                     allowed=False,
-                    reason=f"Budget exceeded: {spending} {policy.currency} >= {limit} {policy.currency}",
+                    reason=f"Insufficient budget: need {estimated_cost}, available {available} {policy.currency}",
                     remaining_budget=Decimal('0')
                 )
             
-            # 7. Allow with remaining budget
-            remaining = limit - spending
+            # 9. Check if already exceeded (even without estimated cost)
+            if available <= 0:
+                logger.info(
+                    f"Budget check denied for agent {agent_id}: "
+                    f"Budget exceeded (spent={spending}, reserved={reserved_budget}, limit={limit} {policy.currency})"
+                )
+                return PolicyDecision(
+                    allowed=False,
+                    reason=f"Budget exceeded: spent {spending} + reserved {reserved_budget} >= {limit} {policy.currency}",
+                    remaining_budget=Decimal('0')
+                )
+            
+            # 10. Create provisional charge if manager available and estimated cost provided
+            provisional_charge_id = None
+            if self.provisional_charge_manager is not None and estimated_cost is not None:
+                try:
+                    from uuid import UUID
+                    import asyncio
+                    
+                    agent_uuid = UUID(agent_id)
+                    
+                    # Run async method in sync context
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        provisional_charge = asyncio.create_task(
+                            self.provisional_charge_manager.create_provisional_charge(
+                                agent_uuid, estimated_cost
+                            )
+                        ).result()
+                    else:
+                        provisional_charge = loop.run_until_complete(
+                            self.provisional_charge_manager.create_provisional_charge(
+                                agent_uuid, estimated_cost
+                            )
+                        )
+                    
+                    provisional_charge_id = str(provisional_charge.charge_id)
+                    logger.debug(
+                        f"Created provisional charge {provisional_charge_id} for agent {agent_id}, "
+                        f"amount={estimated_cost}"
+                    )
+                except Exception as e:
+                    # Fail closed on provisional charge creation error
+                    logger.error(
+                        f"Failed to create provisional charge for agent {agent_id}: {e}",
+                        exc_info=True
+                    )
+                    raise PolicyEvaluationError(
+                        f"Failed to create provisional charge for agent '{agent_id}': {e}"
+                    ) from e
+            
+            # 11. Allow with remaining budget
+            remaining = available - (estimated_cost if estimated_cost is not None else Decimal('0'))
             logger.info(
                 f"Budget check allowed for agent {agent_id}: "
-                f"Within budget (spent={spending}, limit={limit}, remaining={remaining} {policy.currency})"
+                f"Within budget (spent={spending}, reserved={reserved_budget}, limit={limit}, "
+                f"remaining={remaining} {policy.currency}, provisional_charge_id={provisional_charge_id})"
             )
             return PolicyDecision(
                 allowed=True,
                 reason="Within budget",
-                remaining_budget=remaining
+                remaining_budget=remaining,
+                provisional_charge_id=provisional_charge_id
             )
             
         except PolicyEvaluationError:

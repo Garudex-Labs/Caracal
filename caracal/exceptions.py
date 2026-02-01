@@ -171,3 +171,9 @@ class ConnectionError(SDKError):
 class SDKConfigurationError(SDKError):
     """Raised when SDK configuration is invalid."""
     pass
+
+
+# Provisional Charge Errors
+class ProvisionalChargeError(CaracalError):
+    """Base exception for provisional charge-related errors."""
+    pass
