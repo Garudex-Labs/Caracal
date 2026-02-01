@@ -1,0 +1,462 @@
+"""
+MCP Adapter for Caracal Core.
+
+This module provides the MCPAdapter service that intercepts MCP tool calls
+and resource reads, enforces budget policies, and emits metering events.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Dict, Optional
+from uuid import UUID
+
+from ase.protocol import MeteringEvent
+from caracal.core.metering import MeteringCollector
+from caracal.core.policy import PolicyEvaluator
+from caracal.exceptions import BudgetExceededError, CaracalError
+from caracal.logging_config import get_logger
+from caracal.mcp.cost_calculator import MCPCostCalculator
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class MCPContext:
+    """
+    Context information for an MCP request.
+    
+    Attributes:
+        agent_id: ID of the agent making the request
+        metadata: Additional metadata from the MCP request
+    """
+    agent_id: str
+    metadata: Dict[str, Any]
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a value from metadata."""
+        return self.metadata.get(key, default)
+
+
+@dataclass
+class MCPResource:
+    """
+    Represents an MCP resource.
+    
+    Attributes:
+        uri: Resource URI
+        content: Resource content
+        mime_type: MIME type of the resource
+        size: Size in bytes
+    """
+    uri: str
+    content: Any
+    mime_type: str
+    size: int
+
+
+@dataclass
+class MCPResult:
+    """
+    Result of an MCP operation.
+    
+    Attributes:
+        success: Whether the operation succeeded
+        result: The operation result (tool output, resource content, etc.)
+        error: Error message if operation failed
+        metadata: Additional metadata about the operation
+    """
+    success: bool
+    result: Any
+    error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class MCPAdapter:
+    """
+    Adapter for integrating Caracal budget enforcement with MCP protocol.
+    
+    This adapter intercepts MCP tool calls and resource reads, performs
+    budget checks, forwards requests to MCP servers, and emits metering events.
+    
+    Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 12.1, 12.2, 12.3
+    """
+
+    def __init__(
+        self,
+        policy_evaluator: PolicyEvaluator,
+        metering_collector: MeteringCollector,
+        cost_calculator: MCPCostCalculator
+    ):
+        """
+        Initialize MCPAdapter.
+        
+        Args:
+            policy_evaluator: PolicyEvaluator for budget checks
+            metering_collector: MeteringCollector for emitting events
+            cost_calculator: MCPCostCalculator for cost estimation
+        """
+        self.policy_evaluator = policy_evaluator
+        self.metering_collector = metering_collector
+        self.cost_calculator = cost_calculator
+        logger.info("MCPAdapter initialized")
+
+    async def intercept_tool_call(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        mcp_context: MCPContext
+    ) -> MCPResult:
+        """
+        Intercept MCP tool invocation.
+        
+        This method:
+        1. Extracts agent ID from MCP context
+        2. Estimates cost based on tool and args
+        3. Checks budget via Policy Evaluator
+        4. If allowed, forwards to MCP server (simulated in v0.2)
+        5. Emits metering event with actual cost
+        6. Returns result
+        
+        Args:
+            tool_name: Name of the MCP tool being invoked
+            tool_args: Arguments passed to the tool
+            mcp_context: MCP context containing agent ID and metadata
+            
+        Returns:
+            MCPResult with success status and result/error
+            
+        Raises:
+            BudgetExceededError: If budget check fails
+            CaracalError: If operation fails critically
+            
+        Requirements: 11.1, 11.2, 11.3, 11.4, 11.5
+        """
+        try:
+            # 1. Extract agent ID from MCP context
+            agent_id = self._extract_agent_id(mcp_context)
+            logger.debug(
+                f"Intercepting MCP tool call: tool={tool_name}, agent={agent_id}"
+            )
+            
+            # 2. Estimate cost based on tool and args
+            estimated_cost = await self.cost_calculator.estimate_tool_cost(
+                tool_name, tool_args
+            )
+            logger.debug(
+                f"Estimated cost for tool '{tool_name}': {estimated_cost} USD"
+            )
+            
+            # 3. Check budget via Policy Evaluator
+            policy_decision = self.policy_evaluator.check_budget(
+                agent_id, estimated_cost
+            )
+            
+            if not policy_decision.allowed:
+                logger.warning(
+                    f"Budget check denied for agent {agent_id}: {policy_decision.reason}"
+                )
+                raise BudgetExceededError(
+                    f"Budget check failed: {policy_decision.reason}"
+                )
+            
+            logger.info(
+                f"Budget check passed for agent {agent_id}: "
+                f"remaining={policy_decision.remaining_budget} USD, "
+                f"provisional_charge_id={policy_decision.provisional_charge_id}"
+            )
+            
+            # 4. Forward to MCP server (simulated in v0.2 - actual forwarding in v0.3)
+            # In a real implementation, this would call the actual MCP server
+            tool_result = await self._forward_to_mcp_server(tool_name, tool_args)
+            
+            # 5. Calculate actual cost from result
+            actual_cost = await self.cost_calculator.calculate_actual_tool_cost(
+                tool_name, tool_args, tool_result
+            )
+            logger.debug(
+                f"Actual cost for tool '{tool_name}': {actual_cost} USD"
+            )
+            
+            # 6. Emit metering event with actual cost
+            metering_event = MeteringEvent(
+                agent_id=agent_id,
+                resource_type=f"mcp.tool.{tool_name}",
+                quantity=Decimal("1"),  # One tool invocation
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                    "estimated_cost": str(estimated_cost),
+                    "actual_cost": str(actual_cost),
+                    "mcp_context": mcp_context.metadata,
+                }
+            )
+            
+            self.metering_collector.collect_event(
+                metering_event,
+                provisional_charge_id=policy_decision.provisional_charge_id
+            )
+            
+            logger.info(
+                f"MCP tool call completed: tool={tool_name}, agent={agent_id}, "
+                f"cost={actual_cost} USD"
+            )
+            
+            return MCPResult(
+                success=True,
+                result=tool_result,
+                metadata={
+                    "estimated_cost": str(estimated_cost),
+                    "actual_cost": str(actual_cost),
+                    "provisional_charge_id": policy_decision.provisional_charge_id,
+                    "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget else None,
+                }
+            )
+            
+        except BudgetExceededError:
+            # Re-raise budget errors
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to intercept MCP tool call '{tool_name}' for agent {mcp_context.agent_id}: {e}",
+                exc_info=True
+            )
+            return MCPResult(
+                success=False,
+                result=None,
+                error=f"MCP tool call failed: {e}"
+            )
+
+    async def intercept_resource_read(
+        self,
+        resource_uri: str,
+        mcp_context: MCPContext
+    ) -> MCPResult:
+        """
+        Intercept MCP resource read.
+        
+        This method:
+        1. Extracts agent ID from MCP context
+        2. Estimates cost based on resource type and size
+        3. Checks budget via Policy Evaluator
+        4. If allowed, forwards to MCP server (simulated in v0.2)
+        5. Emits metering event with actual cost
+        6. Returns resource
+        
+        Args:
+            resource_uri: URI of the resource to read
+            mcp_context: MCP context containing agent ID and metadata
+            
+        Returns:
+            MCPResult with success status and resource/error
+            
+        Raises:
+            BudgetExceededError: If budget check fails
+            CaracalError: If operation fails critically
+            
+        Requirements: 12.1, 12.2, 12.3
+        """
+        try:
+            # 1. Extract agent ID from MCP context
+            agent_id = self._extract_agent_id(mcp_context)
+            logger.debug(
+                f"Intercepting MCP resource read: uri={resource_uri}, agent={agent_id}"
+            )
+            
+            # 2. Estimate cost based on resource URI (before fetching)
+            # For now, use a default estimate - actual size will be known after fetch
+            estimated_cost = await self.cost_calculator.estimate_resource_cost(
+                resource_uri, estimated_size=0  # Will be refined after fetch
+            )
+            logger.debug(
+                f"Estimated cost for resource '{resource_uri}': {estimated_cost} USD"
+            )
+            
+            # 3. Check budget via Policy Evaluator
+            policy_decision = self.policy_evaluator.check_budget(
+                agent_id, estimated_cost
+            )
+            
+            if not policy_decision.allowed:
+                logger.warning(
+                    f"Budget check denied for agent {agent_id}: {policy_decision.reason}"
+                )
+                raise BudgetExceededError(
+                    f"Budget check failed: {policy_decision.reason}"
+                )
+            
+            logger.info(
+                f"Budget check passed for agent {agent_id}: "
+                f"remaining={policy_decision.remaining_budget} USD, "
+                f"provisional_charge_id={policy_decision.provisional_charge_id}"
+            )
+            
+            # 4. Fetch resource from MCP server (simulated in v0.2)
+            resource = await self._fetch_resource(resource_uri)
+            
+            # 5. Calculate actual cost based on resource size
+            actual_cost = await self.cost_calculator.estimate_resource_cost(
+                resource_uri, estimated_size=resource.size
+            )
+            logger.debug(
+                f"Actual cost for resource '{resource_uri}': {actual_cost} USD"
+            )
+            
+            # 6. Emit metering event with actual cost
+            metering_event = MeteringEvent(
+                agent_id=agent_id,
+                resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
+                quantity=Decimal(str(resource.size)),  # Size in bytes
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "resource_uri": resource_uri,
+                    "mime_type": resource.mime_type,
+                    "size_bytes": resource.size,
+                    "estimated_cost": str(estimated_cost),
+                    "actual_cost": str(actual_cost),
+                    "mcp_context": mcp_context.metadata,
+                }
+            )
+            
+            self.metering_collector.collect_event(
+                metering_event,
+                provisional_charge_id=policy_decision.provisional_charge_id
+            )
+            
+            logger.info(
+                f"MCP resource read completed: uri={resource_uri}, agent={agent_id}, "
+                f"size={resource.size} bytes, cost={actual_cost} USD"
+            )
+            
+            return MCPResult(
+                success=True,
+                result=resource,
+                metadata={
+                    "estimated_cost": str(estimated_cost),
+                    "actual_cost": str(actual_cost),
+                    "provisional_charge_id": policy_decision.provisional_charge_id,
+                    "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget else None,
+                    "resource_size": resource.size,
+                }
+            )
+            
+        except BudgetExceededError:
+            # Re-raise budget errors
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to intercept MCP resource read '{resource_uri}' for agent {mcp_context.agent_id}: {e}",
+                exc_info=True
+            )
+            return MCPResult(
+                success=False,
+                result=None,
+                error=f"MCP resource read failed: {e}"
+            )
+
+    def _extract_agent_id(self, mcp_context: MCPContext) -> str:
+        """
+        Extract agent ID from MCP context.
+        
+        Args:
+            mcp_context: MCP context
+            
+        Returns:
+            Agent ID as string
+            
+        Raises:
+            CaracalError: If agent ID not found in context
+        """
+        agent_id = mcp_context.agent_id
+        
+        if not agent_id:
+            # Try to get from metadata as fallback
+            agent_id = mcp_context.get("caracal_agent_id")
+            
+        if not agent_id:
+            logger.error("Agent ID not found in MCP context")
+            raise CaracalError("Agent ID not found in MCP context")
+        
+        return agent_id
+
+    async def _forward_to_mcp_server(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any]
+    ) -> Any:
+        """
+        Forward tool invocation to MCP server.
+        
+        This is a placeholder implementation for v0.2.
+        In v0.3, this will make actual HTTP/gRPC calls to MCP servers.
+        
+        Args:
+            tool_name: Name of the tool
+            tool_args: Tool arguments
+            
+        Returns:
+            Simulated tool result
+        """
+        # Simulated tool execution for v0.2
+        logger.debug(
+            f"Simulating MCP tool execution: tool={tool_name}, args={tool_args}"
+        )
+        
+        # Return a simulated result
+        return {
+            "status": "success",
+            "tool": tool_name,
+            "result": f"Simulated result for {tool_name}",
+            "metadata": {
+                "execution_time_ms": 100,
+                "tokens_used": tool_args.get("max_tokens", 1000),
+            }
+        }
+
+    async def _fetch_resource(self, resource_uri: str) -> MCPResource:
+        """
+        Fetch resource from MCP server.
+        
+        This is a placeholder implementation for v0.2.
+        In v0.3, this will make actual HTTP/gRPC calls to MCP servers.
+        
+        Args:
+            resource_uri: URI of the resource
+            
+        Returns:
+            MCPResource with simulated content
+        """
+        # Simulated resource fetch for v0.2
+        logger.debug(f"Simulating MCP resource fetch: uri={resource_uri}")
+        
+        # Return a simulated resource
+        content = f"Simulated content for {resource_uri}"
+        return MCPResource(
+            uri=resource_uri,
+            content=content,
+            mime_type="text/plain",
+            size=len(content.encode('utf-8'))
+        )
+
+    def _get_resource_type(self, resource_uri: str) -> str:
+        """
+        Extract resource type from URI scheme.
+        
+        Args:
+            resource_uri: Resource URI
+            
+        Returns:
+            Resource type string
+        """
+        # Map URI schemes to resource types
+        if resource_uri.startswith("file://"):
+            return "file"
+        elif resource_uri.startswith("http://") or resource_uri.startswith("https://"):
+            return "http"
+        elif resource_uri.startswith("db://"):
+            return "database"
+        elif resource_uri.startswith("s3://"):
+            return "s3"
+        else:
+            return "unknown"
