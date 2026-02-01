@@ -139,6 +139,14 @@ def pricebook():
     pass
 
 
+# Import and register pricebook commands
+from caracal.cli.pricebook import get_price, import_prices, list_prices, set_price
+pricebook.add_command(list_prices, name='list')
+pricebook.add_command(get_price, name='get')
+pricebook.add_command(set_price, name='set')
+pricebook.add_command(import_prices, name='import')
+
+
 @cli.group()
 def backup():
     """Backup and restore operations."""
