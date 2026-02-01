@@ -325,13 +325,25 @@ class TestGatewayProxyRequestForwarding:
         }
         mock_request.body = AsyncMock(return_value=b'{"test": "data"}')
         
-        # Mock HTTP client response
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.content = b'{"result": "success"}'
-        mock_response.headers = {"content-type": "application/json"}
+        # Mock HTTP client streaming response
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {"content-type": "application/json"}
+        mock_stream_response.request = Mock()
         
-        gateway_proxy.http_client.request = AsyncMock(return_value=mock_response)
+        # Mock streaming chunks
+        async def mock_aiter_bytes():
+            yield b'{"result": '
+            yield b'"success"}'
+        
+        mock_stream_response.aiter_bytes = mock_aiter_bytes
+        
+        # Mock the stream context manager
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
         
         # Forward request
         response = await gateway_proxy.forward_request(
@@ -342,7 +354,125 @@ class TestGatewayProxyRequestForwarding:
         # Verify
         assert response.status_code == 200
         assert response.content == b'{"result": "success"}'
-        gateway_proxy.http_client.request.assert_called_once()
+        gateway_proxy.http_client.stream.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_forward_request_streaming_large_response(self, gateway_proxy):
+        """Test request forwarding with large streaming response."""
+        # Mock request
+        mock_request = Mock()
+        mock_request.method = "GET"
+        mock_request.headers = {
+            "Accept": "application/json",
+            "X-Caracal-Target-URL": "https://api.example.com/large-data"
+        }
+        mock_request.body = AsyncMock(return_value=b'')
+        
+        # Mock HTTP client streaming response with large chunks
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {"content-type": "application/json"}
+        mock_stream_response.request = Mock()
+        
+        # Mock streaming large chunks (simulate 10KB response)
+        large_chunk = b'x' * 1024  # 1KB chunk
+        async def mock_aiter_bytes():
+            for _ in range(10):
+                yield large_chunk
+        
+        mock_stream_response.aiter_bytes = mock_aiter_bytes
+        
+        # Mock the stream context manager
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
+        
+        # Forward request
+        response = await gateway_proxy.forward_request(
+            mock_request,
+            "https://api.example.com/large-data"
+        )
+        
+        # Verify
+        assert response.status_code == 200
+        assert len(response.content) == 10240  # 10KB
+        assert response.content == large_chunk * 10
+    
+    @pytest.mark.asyncio
+    async def test_forward_request_removes_caracal_headers(self, gateway_proxy):
+        """Test that Caracal-specific headers are removed before forwarding."""
+        # Mock request with Caracal headers
+        mock_request = Mock()
+        mock_request.method = "POST"
+        mock_request.headers = {
+            "Content-Type": "application/json",
+            "X-Caracal-Target-URL": "https://api.example.com/endpoint",
+            "X-Caracal-Estimated-Cost": "0.01",
+            "X-Caracal-Nonce": "test-nonce",
+            "X-API-Key": "secret-key",
+            "Authorization": "Bearer token"
+        }
+        mock_request.body = AsyncMock(return_value=b'{"test": "data"}')
+        
+        # Mock HTTP client streaming response
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {"content-type": "application/json"}
+        mock_stream_response.request = Mock()
+        mock_stream_response.aiter_bytes = AsyncMock(return_value=[b'{"result": "success"}'].__aiter__())
+        
+        # Mock the stream context manager
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
+        
+        # Forward request
+        await gateway_proxy.forward_request(
+            mock_request,
+            "https://api.example.com/endpoint"
+        )
+        
+        # Verify that stream was called
+        gateway_proxy.http_client.stream.assert_called_once()
+        
+        # Get the headers that were passed to stream
+        call_kwargs = gateway_proxy.http_client.stream.call_args[1]
+        forwarded_headers = call_kwargs['headers']
+        
+        # Verify Caracal headers were removed
+        assert "x-caracal-target-url" not in forwarded_headers
+        assert "x-caracal-estimated-cost" not in forwarded_headers
+        assert "x-caracal-nonce" not in forwarded_headers
+        assert "x-api-key" not in forwarded_headers
+        
+        # Verify non-Caracal headers were kept
+        assert forwarded_headers.get("content-type") == "application/json"
+        assert forwarded_headers.get("authorization") == "Bearer token"
+    
+    @pytest.mark.asyncio
+    async def test_forward_request_timeout(self, gateway_proxy):
+        """Test request forwarding with timeout."""
+        import httpx
+        
+        # Mock request
+        mock_request = Mock()
+        mock_request.method = "GET"
+        mock_request.headers = {"X-Caracal-Target-URL": "https://api.example.com/slow"}
+        mock_request.body = AsyncMock(return_value=b'')
+        
+        # Mock timeout exception
+        gateway_proxy.http_client.stream = Mock(side_effect=httpx.TimeoutException("Request timeout"))
+        
+        # Forward request should raise timeout
+        with pytest.raises(httpx.TimeoutException):
+            await gateway_proxy.forward_request(
+                mock_request,
+                "https://api.example.com/slow"
+            )
 
 
 class TestGatewayProxyStatistics:
@@ -652,3 +782,388 @@ class TestGatewayProxyPolicyEvaluation:
         # Verify request was NOT forwarded
         gateway_proxy.http_client.request.assert_not_called()
 
+
+
+class TestGatewayProxyFinalChargeEmission:
+    """Test final charge emission after request forwarding (Task 8.3)."""
+    
+    @pytest.mark.asyncio
+    async def test_final_charge_emission_with_actual_cost_header(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_metering_collector,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test final charge emission when X-Caracal-Actual-Cost header is present."""
+        from fastapi.testclient import TestClient
+        from uuid import uuid4
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation success with provisional charge
+        provisional_charge_id = str(uuid4())
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("50.00"),
+            provisional_charge_id=provisional_charge_id
+        )
+        
+        # Mock HTTP client streaming response with actual cost header
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {
+            "content-type": "application/json",
+            "X-Caracal-Actual-Cost": "8.50"
+        }
+        mock_stream_response.request = Mock()
+        mock_stream_response.aiter_bytes = AsyncMock(return_value=[b'{"result": "success"}'].__aiter__())
+        
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test",
+                "X-Caracal-Estimated-Cost": "10.00",
+                "X-Caracal-Resource-Type": "api_call"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        
+        # Verify metering collector was called
+        mock_metering_collector.collect_event.assert_called_once()
+        
+        # Verify metering event details
+        call_args = mock_metering_collector.collect_event.call_args
+        metering_event = call_args[0][0]
+        assert metering_event.agent_id == str(sample_agent.agent_id)
+        assert metering_event.resource_type == "api_call"
+        assert metering_event.metadata["actual_cost"] == "8.50"
+        assert metering_event.metadata["estimated_cost"] == "10.00"
+        assert metering_event.metadata["status_code"] == 200
+        assert metering_event.metadata["provisional_charge_id"] == provisional_charge_id
+        
+        # Verify provisional charge ID was passed
+        assert call_args[1]["provisional_charge_id"] == provisional_charge_id
+    
+    @pytest.mark.asyncio
+    async def test_final_charge_emission_without_actual_cost_header(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_metering_collector,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test final charge emission when X-Caracal-Actual-Cost header is missing."""
+        from fastapi.testclient import TestClient
+        from uuid import uuid4
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation success with provisional charge
+        provisional_charge_id = str(uuid4())
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("50.00"),
+            provisional_charge_id=provisional_charge_id
+        )
+        
+        # Mock HTTP client streaming response WITHOUT actual cost header
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {"content-type": "application/json"}
+        mock_stream_response.request = Mock()
+        mock_stream_response.aiter_bytes = AsyncMock(return_value=[b'{"result": "success"}'].__aiter__())
+        
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request with estimated cost
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test",
+                "X-Caracal-Estimated-Cost": "10.00"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        
+        # Verify metering collector was called
+        mock_metering_collector.collect_event.assert_called_once()
+        
+        # Verify metering event uses estimated cost when actual cost is missing
+        call_args = mock_metering_collector.collect_event.call_args
+        metering_event = call_args[0][0]
+        assert metering_event.metadata["actual_cost"] == "10.00"  # Falls back to estimated
+        assert metering_event.metadata["estimated_cost"] == "10.00"
+    
+    @pytest.mark.asyncio
+    async def test_final_charge_emission_with_response_size_metering(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_metering_collector,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test final charge emission meters response size when no cost provided."""
+        from fastapi.testclient import TestClient
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation success without provisional charge
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("100.00"),
+            provisional_charge_id=None
+        )
+        
+        # Mock HTTP client streaming response with large content
+        large_response = b'x' * 5000  # 5KB response
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {"content-type": "application/json"}
+        mock_stream_response.request = Mock()
+        mock_stream_response.aiter_bytes = AsyncMock(return_value=[large_response].__aiter__())
+        
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request without estimated cost
+        response = client.get(
+            "/api/data",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/data"
+            }
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        assert len(response.content) == 5000
+        
+        # Verify metering collector was called
+        mock_metering_collector.collect_event.assert_called_once()
+        
+        # Verify metering event includes response size
+        call_args = mock_metering_collector.collect_event.call_args
+        metering_event = call_args[0][0]
+        assert metering_event.metadata["response_size_bytes"] == 5000
+        # When no cost provided, quantity should be response size in bytes
+        assert metering_event.quantity == Decimal("5000")
+    
+    @pytest.mark.asyncio
+    async def test_final_charge_emission_failure_does_not_block_response(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_metering_collector,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test that metering failures don't block the response to the client."""
+        from fastapi.testclient import TestClient
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation success
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("100.00"),
+            provisional_charge_id=None
+        )
+        
+        # Mock HTTP client streaming response
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {"content-type": "application/json"}
+        mock_stream_response.request = Mock()
+        mock_stream_response.aiter_bytes = AsyncMock(return_value=[b'{"result": "success"}'].__aiter__())
+        
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
+        
+        # Mock metering collector to raise exception
+        mock_metering_collector.collect_event.side_effect = Exception("Database connection failed")
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test",
+                "X-Caracal-Estimated-Cost": "10.00"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response is still successful despite metering failure
+        assert response.status_code == 200
+        assert response.json() == {"result": "success"}
+        
+        # Verify metering collector was called (and failed)
+        mock_metering_collector.collect_event.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_final_charge_emission_with_custom_resource_type(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_metering_collector,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test final charge emission with custom resource type."""
+        from fastapi.testclient import TestClient
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation success
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("100.00"),
+            provisional_charge_id=None
+        )
+        
+        # Mock HTTP client streaming response
+        mock_stream_response = AsyncMock()
+        mock_stream_response.status_code = 200
+        mock_stream_response.headers = {"content-type": "application/json"}
+        mock_stream_response.request = Mock()
+        mock_stream_response.aiter_bytes = AsyncMock(return_value=[b'{"result": "success"}'].__aiter__())
+        
+        mock_stream_context = AsyncMock()
+        mock_stream_context.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_context.__aexit__ = AsyncMock(return_value=None)
+        
+        gateway_proxy.http_client.stream = Mock(return_value=mock_stream_context)
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request with custom resource type
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test",
+                "X-Caracal-Resource-Type": "llm_inference"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        
+        # Verify metering collector was called with custom resource type
+        mock_metering_collector.collect_event.assert_called_once()
+        call_args = mock_metering_collector.collect_event.call_args
+        metering_event = call_args[0][0]
+        assert metering_event.resource_type == "llm_inference"

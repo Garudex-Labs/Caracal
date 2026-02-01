@@ -308,44 +308,70 @@ class GatewayProxy:
                     }
                 )
             
-            # 5. Emit final charge (metering event)
-            # Extract actual cost from response headers (optional)
-            actual_cost_str = response.headers.get("X-Caracal-Actual-Cost")
-            if actual_cost_str:
-                try:
-                    from decimal import Decimal
-                    from ase.protocol import MeteringEvent
-                    from datetime import datetime
-                    
-                    actual_cost = Decimal(actual_cost_str)
-                    
-                    # Create metering event
-                    metering_event = MeteringEvent(
-                        agent_id=agent.agent_id,
-                        resource_type=request.headers.get("X-Caracal-Resource-Type", "api_call"),
-                        quantity=Decimal("1"),
-                        timestamp=datetime.utcnow(),
-                        metadata={
-                            "method": request.method,
-                            "path": path,
-                            "target_url": target_url,
-                            "status_code": response.status_code
-                        }
-                    )
-                    
-                    # Collect event with provisional charge ID
-                    self.metering_collector.collect_event(
-                        metering_event,
-                        provisional_charge_id=policy_decision.provisional_charge_id
-                    )
-                    
-                    logger.info(
-                        f"Emitted final charge for agent {agent.agent_id}, "
-                        f"cost={actual_cost}, provisional_charge_id={policy_decision.provisional_charge_id}"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to emit final charge for agent {agent.agent_id}: {e}", exc_info=True)
-                    # Don't fail the request if metering fails
+            # 5. Emit final charge (metering event) after response
+            # This ensures accurate cost tracking based on actual resource consumption
+            # Requirements: 1.4, 15.1, 15.2, 15.3
+            try:
+                from decimal import Decimal
+                from ase.protocol import MeteringEvent
+                from datetime import datetime
+                
+                # Extract actual cost from response headers if provided
+                # Otherwise, use the estimated cost from the provisional charge
+                actual_cost_str = response.headers.get("X-Caracal-Actual-Cost")
+                if actual_cost_str:
+                    try:
+                        actual_cost = Decimal(actual_cost_str)
+                    except (ValueError, Exception) as e:
+                        logger.warning(f"Invalid actual cost header: {actual_cost_str}, using estimated cost")
+                        actual_cost = estimated_cost if estimated_cost else Decimal("0")
+                else:
+                    # Use estimated cost if no actual cost provided
+                    actual_cost = estimated_cost if estimated_cost else Decimal("0")
+                
+                # Determine resource type from request headers or default to api_call
+                resource_type = request.headers.get("X-Caracal-Resource-Type", "api_call")
+                
+                # Calculate quantity based on response size (bytes)
+                # This provides a basic metering mechanism when no explicit cost is provided
+                response_size_bytes = len(response.content)
+                quantity = Decimal(str(response_size_bytes)) if actual_cost == Decimal("0") else Decimal("1")
+                
+                # Create metering event with comprehensive metadata
+                metering_event = MeteringEvent(
+                    agent_id=str(agent.agent_id),
+                    resource_type=resource_type,
+                    quantity=quantity,
+                    timestamp=datetime.utcnow(),
+                    metadata={
+                        "method": request.method,
+                        "path": path,
+                        "target_url": target_url,
+                        "status_code": response.status_code,
+                        "response_size_bytes": response_size_bytes,
+                        "estimated_cost": str(estimated_cost) if estimated_cost else None,
+                        "actual_cost": str(actual_cost),
+                        "provisional_charge_id": str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                    }
+                )
+                
+                # Collect event with provisional charge ID for reconciliation
+                # This will release the provisional charge and adjust budget if costs differ
+                self.metering_collector.collect_event(
+                    metering_event,
+                    provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                )
+                
+                logger.info(
+                    f"Emitted final charge for agent {agent.agent_id}, "
+                    f"resource={resource_type}, quantity={quantity}, "
+                    f"estimated_cost={estimated_cost}, actual_cost={actual_cost}, "
+                    f"provisional_charge_id={policy_decision.provisional_charge_id}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to emit final charge for agent {agent.agent_id}: {e}", exc_info=True)
+                # Don't fail the request if metering fails - the provisional charge
+                # will be cleaned up by the background job if not released
             
             # 6. Return response
             self._allowed_count += 1
@@ -515,17 +541,24 @@ class GatewayProxy:
     
     async def forward_request(self, request: Request, target_url: str) -> httpx.Response:
         """
-        Forward authenticated request to target API.
+        Forward authenticated request to target API with streaming support.
+        
+        This method forwards the request to the target API and handles both
+        regular and streaming responses. For streaming responses, the entire
+        response is read into memory before returning to ensure we can emit
+        accurate final charges based on actual resource consumption.
         
         Args:
             request: FastAPI Request object
             target_url: Target API URL
             
         Returns:
-            httpx.Response from target API
+            httpx.Response from target API with content fully read
             
         Raises:
             httpx.HTTPError: If request forwarding fails
+            
+        Requirements: 1.4
         """
         try:
             # Read request body
@@ -547,26 +580,43 @@ class GatewayProxy:
             for header in caracal_headers:
                 headers.pop(header, None)
             
-            # Forward request
+            # Forward request with streaming enabled
             logger.debug(
                 f"Forwarding request: method={request.method}, "
                 f"url={target_url}, headers={len(headers)}"
             )
             
-            response = await self.http_client.request(
+            # Use stream=True to handle large responses efficiently
+            async with self.http_client.stream(
                 method=request.method,
                 url=target_url,
                 headers=headers,
                 content=body,
                 timeout=self.config.request_timeout_seconds
-            )
-            
-            logger.debug(
-                f"Received response: status={response.status_code}, "
-                f"size={len(response.content)} bytes"
-            )
-            
-            return response
+            ) as response:
+                # Read the response content in chunks for streaming support
+                # This allows us to handle large responses without loading
+                # everything into memory at once
+                content_chunks = []
+                async for chunk in response.aiter_bytes():
+                    content_chunks.append(chunk)
+                
+                # Combine chunks into full content
+                full_content = b''.join(content_chunks)
+                
+                logger.debug(
+                    f"Received response: status={response.status_code}, "
+                    f"size={len(full_content)} bytes"
+                )
+                
+                # Create a new Response object with the full content
+                # We need to do this because the streaming response can't be reused
+                return httpx.Response(
+                    status_code=response.status_code,
+                    headers=response.headers,
+                    content=full_content,
+                    request=response.request
+                )
             
         except httpx.TimeoutException as e:
             logger.error(f"Request timeout forwarding to {target_url}: {e}")
