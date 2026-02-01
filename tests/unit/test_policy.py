@@ -747,3 +747,208 @@ class TestPolicyEvaluator:
             evaluator.check_budget(agent_id)
         
         assert "Failed to query spending" in str(exc_info.value)
+
+
+    def test_create_policy_with_delegation(self, temp_dir):
+        """Test creating a delegated policy."""
+        # Create agent registry
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register parent and child agents
+        parent = registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        child = registry.register_agent(
+            name="child-agent",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Create policy store with registry
+        policy_path = temp_dir / "policies.json"
+        store = PolicyStore(str(policy_path), agent_registry=registry)
+        
+        # Create delegated policy
+        policy = store.create_policy(
+            agent_id=child.agent_id,
+            limit_amount=Decimal("50.00"),
+            delegated_from_agent_id=parent.agent_id
+        )
+        
+        assert policy.agent_id == child.agent_id
+        assert policy.delegated_from_agent_id == parent.agent_id
+        assert policy.limit_amount == "50.00"
+
+    def test_create_policy_delegation_nonexistent_parent(self, temp_dir):
+        """Test that delegation from non-existent agent fails."""
+        # Create agent registry
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register child agent
+        child = registry.register_agent(
+            name="child-agent",
+            owner="child@example.com"
+        )
+        
+        # Create policy store with registry
+        policy_path = temp_dir / "policies.json"
+        store = PolicyStore(str(policy_path), agent_registry=registry)
+        
+        # Attempt to create delegated policy with non-existent parent
+        with pytest.raises(AgentNotFoundError) as exc_info:
+            store.create_policy(
+                agent_id=child.agent_id,
+                limit_amount=Decimal("50.00"),
+                delegated_from_agent_id="non-existent-id"
+            )
+        
+        assert "non-existent-id" in str(exc_info.value)
+
+    def test_create_policy_delegation_from_non_parent(self, temp_dir):
+        """Test that delegation from non-parent agent fails."""
+        # Create agent registry
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register agents
+        parent = registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        child = registry.register_agent(
+            name="child-agent",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        unrelated = registry.register_agent(
+            name="unrelated-agent",
+            owner="unrelated@example.com"
+        )
+        
+        # Create policy store with registry
+        policy_path = temp_dir / "policies.json"
+        store = PolicyStore(str(policy_path), agent_registry=registry)
+        
+        # Attempt to create delegated policy from non-parent
+        with pytest.raises(InvalidPolicyError) as exc_info:
+            store.create_policy(
+                agent_id=child.agent_id,
+                limit_amount=Decimal("50.00"),
+                delegated_from_agent_id=unrelated.agent_id
+            )
+        
+        assert "not the parent" in str(exc_info.value)
+
+    def test_get_delegated_policies(self, temp_dir):
+        """Test retrieving delegated policies."""
+        # Create agent registry
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register parent and children
+        parent = registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        child1 = registry.register_agent(
+            name="child-1",
+            owner="child1@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        child2 = registry.register_agent(
+            name="child-2",
+            owner="child2@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Create policy store with registry
+        policy_path = temp_dir / "policies.json"
+        store = PolicyStore(str(policy_path), agent_registry=registry)
+        
+        # Create delegated policies
+        policy1 = store.create_policy(
+            agent_id=child1.agent_id,
+            limit_amount=Decimal("50.00"),
+            delegated_from_agent_id=parent.agent_id
+        )
+        policy2 = store.create_policy(
+            agent_id=child2.agent_id,
+            limit_amount=Decimal("75.00"),
+            delegated_from_agent_id=parent.agent_id
+        )
+        
+        # Create non-delegated policy
+        store.create_policy(
+            agent_id=parent.agent_id,
+            limit_amount=Decimal("200.00")
+        )
+        
+        # Get delegated policies
+        delegated = store.get_delegated_policies(parent.agent_id)
+        
+        assert len(delegated) == 2
+        policy_ids = {p.policy_id for p in delegated}
+        assert policy1.policy_id in policy_ids
+        assert policy2.policy_id in policy_ids
+
+    def test_get_delegated_policies_no_delegations(self, temp_dir):
+        """Test getting delegated policies when none exist."""
+        # Create agent registry
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register agent
+        agent = registry.register_agent(
+            name="agent",
+            owner="agent@example.com"
+        )
+        
+        # Create policy store with registry
+        policy_path = temp_dir / "policies.json"
+        store = PolicyStore(str(policy_path), agent_registry=registry)
+        
+        # Get delegated policies (should be empty)
+        delegated = store.get_delegated_policies(agent.agent_id)
+        assert len(delegated) == 0
+
+    def test_delegation_persistence(self, temp_dir):
+        """Test that delegation information is persisted."""
+        # Create agent registry
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register parent and child
+        parent = registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        child = registry.register_agent(
+            name="child-agent",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Create first policy store and delegated policy
+        policy_path = temp_dir / "policies.json"
+        store1 = PolicyStore(str(policy_path), agent_registry=registry)
+        policy = store1.create_policy(
+            agent_id=child.agent_id,
+            limit_amount=Decimal("50.00"),
+            delegated_from_agent_id=parent.agent_id
+        )
+        
+        # Create second policy store (should load from disk)
+        store2 = PolicyStore(str(policy_path), agent_registry=registry)
+        
+        # Verify delegation was loaded
+        loaded_policies = store2.get_policies(child.agent_id)
+        assert len(loaded_policies) == 1
+        assert loaded_policies[0].delegated_from_agent_id == parent.agent_id
+        
+        # Verify get_delegated_policies works after loading
+        delegated = store2.get_delegated_policies(parent.agent_id)
+        assert len(delegated) == 1
+        assert delegated[0].policy_id == policy.policy_id

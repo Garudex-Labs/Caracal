@@ -42,6 +42,7 @@ class BudgetPolicy:
         currency: Currency code (e.g., "USD")
         created_at: Timestamp when policy was created
         active: Whether policy is currently active
+        delegated_from_agent_id: Optional parent agent ID for delegation tracking
     """
     policy_id: str
     agent_id: str
@@ -50,6 +51,7 @@ class BudgetPolicy:
     currency: str
     created_at: str  # ISO 8601 format
     active: bool
+    delegated_from_agent_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -108,7 +110,8 @@ class PolicyStore:
         agent_id: str,
         limit_amount: Decimal,
         time_window: str = "daily",
-        currency: str = "USD"
+        currency: str = "USD",
+        delegated_from_agent_id: Optional[str] = None
     ) -> BudgetPolicy:
         """
         Create a new budget policy.
@@ -118,13 +121,14 @@ class PolicyStore:
             limit_amount: Maximum spend as Decimal
             time_window: Time window for budget (default: "daily")
             currency: Currency code (default: "USD")
+            delegated_from_agent_id: Optional parent agent ID for delegation tracking
             
         Returns:
             BudgetPolicy: The newly created policy
             
         Raises:
-            InvalidPolicyError: If limit amount is not positive
-            AgentNotFoundError: If agent does not exist (when registry provided)
+            InvalidPolicyError: If limit amount is not positive or validation fails
+            AgentNotFoundError: If agent or delegating agent does not exist (when registry provided)
         """
         # Validate positive limit amount
         if limit_amount <= 0:
@@ -141,6 +145,25 @@ class PolicyStore:
                 raise AgentNotFoundError(
                     f"Agent with ID '{agent_id}' does not exist"
                 )
+            
+            # Validate delegating agent existence if provided
+            if delegated_from_agent_id is not None:
+                delegating_agent = self.agent_registry.get_agent(delegated_from_agent_id)
+                if delegating_agent is None:
+                    logger.warning(f"Attempted to create policy with non-existent delegating agent: {delegated_from_agent_id}")
+                    raise AgentNotFoundError(
+                        f"Delegating agent with ID '{delegated_from_agent_id}' does not exist"
+                    )
+                
+                # Validate that delegating agent is the parent of the agent
+                if agent.parent_agent_id != delegated_from_agent_id:
+                    logger.warning(
+                        f"Attempted to delegate from non-parent agent: "
+                        f"agent={agent_id}, parent={agent.parent_agent_id}, delegating_from={delegated_from_agent_id}"
+                    )
+                    raise InvalidPolicyError(
+                        f"Agent '{delegated_from_agent_id}' is not the parent of agent '{agent_id}'"
+                    )
         
         # Validate time window (v0.1 only supports daily)
         if time_window != "daily":
@@ -159,7 +182,8 @@ class PolicyStore:
             time_window=time_window,
             currency=currency,
             created_at=datetime.utcnow().isoformat() + "Z",
-            active=True
+            active=True,
+            delegated_from_agent_id=delegated_from_agent_id
         )
         
         # Add to store
@@ -181,7 +205,7 @@ class PolicyStore:
         
         logger.info(
             f"Created policy: id={policy_id}, agent_id={agent_id}, "
-            f"limit={limit_amount} {currency}, window={time_window}"
+            f"limit={limit_amount} {currency}, window={time_window}, delegated_from={delegated_from_agent_id}"
         )
         
         return policy
@@ -216,6 +240,23 @@ class PolicyStore:
             List of all BudgetPolicy objects
         """
         return list(self._policies.values())
+
+    def get_delegated_policies(self, delegating_agent_id: str) -> List[BudgetPolicy]:
+        """
+        Get all policies delegated from a specific agent.
+        
+        Args:
+            delegating_agent_id: The agent ID that delegated the policies
+            
+        Returns:
+            List of BudgetPolicy objects delegated from the specified agent
+        """
+        delegated = [
+            policy for policy in self._policies.values()
+            if policy.delegated_from_agent_id == delegating_agent_id and policy.active
+        ]
+        logger.debug(f"Found {len(delegated)} delegated policies from agent {delegating_agent_id}")
+        return delegated
 
     @retry_on_transient_failure(max_retries=3, base_delay=0.1, backoff_factor=2.0)
     def _persist(self) -> None:
