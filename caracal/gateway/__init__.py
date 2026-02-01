@@ -9,8 +9,16 @@ This module provides network-enforced policy enforcement through:
 """
 
 from caracal.gateway.auth import Authenticator, AuthenticationMethod
+from caracal.gateway.replay_protection import (
+    ReplayProtection,
+    ReplayProtectionConfig,
+    ReplayCheckResult,
+)
 
 __all__ = [
     "Authenticator",
     "AuthenticationMethod",
+    "ReplayProtection",
+    "ReplayProtectionConfig",
+    "ReplayCheckResult",
 ]
