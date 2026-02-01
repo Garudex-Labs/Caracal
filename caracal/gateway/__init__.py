@@ -14,6 +14,7 @@ from caracal.gateway.replay_protection import (
     ReplayProtectionConfig,
     ReplayCheckResult,
 )
+from caracal.gateway.proxy import GatewayProxy, GatewayConfig
 
 __all__ = [
     "Authenticator",
@@ -21,4 +22,6 @@ __all__ = [
     "ReplayProtection",
     "ReplayProtectionConfig",
     "ReplayCheckResult",
+    "GatewayProxy",
+    "GatewayConfig",
 ]
