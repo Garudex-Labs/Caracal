@@ -128,9 +128,10 @@ def ledger():
 
 
 # Import and register ledger commands
-from caracal.cli.ledger import query, summary
+from caracal.cli.ledger import query, summary, delegation_chain
 ledger.add_command(query)
 ledger.add_command(summary)
+ledger.add_command(delegation_chain)
 
 
 @cli.group()

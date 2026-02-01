@@ -276,6 +276,16 @@ def query(
     help='End time (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)',
 )
 @click.option(
+    '--aggregate-children',
+    is_flag=True,
+    help='Include spending from child agents in the total (hierarchical aggregation)',
+)
+@click.option(
+    '--breakdown',
+    is_flag=True,
+    help='Show hierarchical breakdown of spending by agent and children',
+)
+@click.option(
     '--format',
     '-f',
     type=click.Choice(['table', 'json'], case_sensitive=False),
@@ -288,6 +298,8 @@ def summary(
     agent_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
+    aggregate_children: bool,
+    breakdown: bool,
     format: str,
 ):
     """
@@ -296,6 +308,9 @@ def summary(
     Calculates total spending for each agent in the specified time window.
     If agent-id is specified, shows detailed breakdown for that agent only.
     
+    With --aggregate-children, includes spending from all child agents in the total.
+    With --breakdown, shows hierarchical view with indentation for parent-child relationships.
+    
     Examples:
     
         # Summary of all agents
@@ -303,6 +318,14 @@ def summary(
         
         # Summary for a specific agent
         caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000
+        
+        # Summary with child agent spending included
+        caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
+            --aggregate-children --start 2024-01-01 --end 2024-01-31
+        
+        # Hierarchical breakdown view
+        caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
+            --breakdown --start 2024-01-01 --end 2024-01-31
         
         # Summary for a date range
         caracal ledger summary --start 2024-01-01 --end 2024-01-31
@@ -343,8 +366,13 @@ def summary(
         # Create ledger query
         ledger_query = get_ledger_query(cli_ctx.config)
         
+        # Get agent registry if needed for hierarchical features
+        agent_registry = None
+        if aggregate_children or breakdown:
+            agent_registry = get_agent_registry(cli_ctx.config)
+        
         if agent_id:
-            # Single agent summary with detailed breakdown
+            # Single agent summary with optional hierarchical features
             if not start_time or not end_time:
                 click.echo(
                     "Error: --start and --end are required when using --agent-id",
@@ -352,6 +380,128 @@ def summary(
                 )
                 sys.exit(1)
             
+            # Handle hierarchical breakdown view
+            if breakdown:
+                breakdown_data = ledger_query.get_spending_breakdown(
+                    agent_id=agent_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    agent_registry=agent_registry
+                )
+                
+                if format.lower() == 'json':
+                    # JSON output - convert Decimal to string
+                    def convert_decimals(obj):
+                        if isinstance(obj, dict):
+                            return {k: convert_decimals(v) for k, v in obj.items()}
+                        elif isinstance(obj, list):
+                            return [convert_decimals(item) for item in obj]
+                        elif isinstance(obj, Decimal):
+                            return str(obj)
+                        return obj
+                    
+                    output = convert_decimals(breakdown_data)
+                    click.echo(json.dumps(output, indent=2))
+                else:
+                    # Table output with hierarchical indentation
+                    click.echo(f"Hierarchical Spending Breakdown")
+                    click.echo("=" * 70)
+                    click.echo()
+                    click.echo(f"Time Period: {start_time} to {end_time}")
+                    click.echo()
+                    
+                    def print_breakdown(data, indent=0):
+                        """Recursively print breakdown with indentation"""
+                        indent_str = "  " * indent
+                        agent_name = data.get("agent_name", data["agent_id"])
+                        
+                        # Print agent line
+                        if indent == 0:
+                            click.echo(f"{indent_str}Agent: {agent_name} ({data['agent_id']})")
+                        else:
+                            click.echo(f"{indent_str}└─ {agent_name} ({data['agent_id']})")
+                        
+                        click.echo(f"{indent_str}   Own Spending: {data['spending']} USD")
+                        
+                        # Print children recursively
+                        if data.get("children"):
+                            for child in data["children"]:
+                                print_breakdown(child, indent + 1)
+                        
+                        # Print total at root level
+                        if indent == 0:
+                            click.echo()
+                            click.echo(f"{indent_str}Total (with children): {data['total_with_children']} USD")
+                    
+                    print_breakdown(breakdown_data)
+                
+                return
+            
+            # Handle aggregate children (sum with children)
+            if aggregate_children:
+                spending_with_children = ledger_query.sum_spending_with_children(
+                    agent_id=agent_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    agent_registry=agent_registry
+                )
+                
+                # Calculate totals
+                own_spending = spending_with_children.get(agent_id, Decimal('0'))
+                total_spending = sum(spending_with_children.values())
+                children_spending = total_spending - own_spending
+                
+                if format.lower() == 'json':
+                    # JSON output
+                    output = {
+                        "agent_id": agent_id,
+                        "start_time": start_time.isoformat() if start_time else None,
+                        "end_time": end_time.isoformat() if end_time else None,
+                        "own_spending": str(own_spending),
+                        "children_spending": str(children_spending),
+                        "total_spending": str(total_spending),
+                        "currency": "USD",
+                        "breakdown_by_agent": {
+                            aid: str(cost)
+                            for aid, cost in spending_with_children.items()
+                        }
+                    }
+                    click.echo(json.dumps(output, indent=2))
+                else:
+                    # Table output
+                    click.echo(f"Spending Summary for Agent: {agent_id} (with children)")
+                    click.echo("=" * 70)
+                    click.echo()
+                    click.echo(f"Time Period: {start_time} to {end_time}")
+                    click.echo(f"Own Spending: {own_spending} USD")
+                    click.echo(f"Children Spending: {children_spending} USD")
+                    click.echo(f"Total Spending: {total_spending} USD")
+                    click.echo()
+                    
+                    if len(spending_with_children) > 1:
+                        click.echo("Breakdown by Agent:")
+                        click.echo("-" * 70)
+                        
+                        # Calculate column width
+                        max_agent_id_len = max(len(aid) for aid in spending_with_children.keys())
+                        agent_id_width = max(max_agent_id_len, len("Agent ID"))
+                        
+                        # Print header
+                        click.echo(f"{'Agent ID':<{agent_id_width}}  Spending (USD)")
+                        click.echo("-" * 70)
+                        
+                        # Print breakdown sorted by spending (descending)
+                        for aid, spending in sorted(
+                            spending_with_children.items(),
+                            key=lambda x: x[1],
+                            reverse=True
+                        ):
+                            marker = " (self)" if aid == agent_id else ""
+                            click.echo(f"{aid:<{agent_id_width}}  {spending}{marker}")
+                
+                return
+            
+            # Standard single agent summary (no hierarchical features)
             # Calculate total spending
             total_spending = ledger_query.sum_spending(
                 agent_id=agent_id,
@@ -487,6 +637,154 @@ def summary(
     except LedgerReadError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+    except CaracalError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+
+@click.command('delegation-chain')
+@click.option(
+    '--agent-id',
+    '-a',
+    required=True,
+    help='Agent ID to query delegation chain for',
+)
+@click.option(
+    '--format',
+    '-f',
+    type=click.Choice(['table', 'json'], case_sensitive=False),
+    default='table',
+    help='Output format (default: table)',
+)
+@click.pass_context
+def delegation_chain(
+    ctx,
+    agent_id: str,
+    format: str,
+):
+    """
+    Query the delegation chain for an agent.
+    
+    Shows the parent-child hierarchy for an agent, including all ancestors
+    (parent, grandparent, etc.) and all descendants (children, grandchildren, etc.).
+    
+    Examples:
+    
+        # Show delegation chain for an agent
+        caracal ledger delegation-chain --agent-id 550e8400-e29b-41d4-a716-446655440000
+        
+        # JSON output
+        caracal ledger delegation-chain -a 550e8400-e29b-41d4-a716-446655440000 --format json
+    """
+    try:
+        # Get CLI context
+        cli_ctx = ctx.obj
+        
+        # Get agent registry
+        agent_registry = get_agent_registry(cli_ctx.config)
+        
+        # Get the agent
+        agent = agent_registry.get_agent(agent_id)
+        if not agent:
+            click.echo(f"Error: Agent with ID '{agent_id}' not found", err=True)
+            sys.exit(1)
+        
+        # Build ancestor chain (parent, grandparent, etc.)
+        ancestors = []
+        current_agent = agent
+        while current_agent.parent_agent_id:
+            parent = agent_registry.get_agent(current_agent.parent_agent_id)
+            if not parent:
+                break
+            ancestors.append({
+                "agent_id": parent.agent_id,
+                "name": parent.name,
+                "owner": parent.owner
+            })
+            current_agent = parent
+        
+        # Reverse to show from root to current
+        ancestors.reverse()
+        
+        # Get descendants (children, grandchildren, etc.)
+        descendants = agent_registry.get_descendants(agent_id)
+        descendants_data = [
+            {
+                "agent_id": desc.agent_id,
+                "name": desc.name,
+                "owner": desc.owner,
+                "parent_agent_id": desc.parent_agent_id
+            }
+            for desc in descendants
+        ]
+        
+        # Get direct children for tree view
+        children = agent_registry.get_children(agent_id)
+        
+        if format.lower() == 'json':
+            # JSON output
+            output = {
+                "agent": {
+                    "agent_id": agent.agent_id,
+                    "name": agent.name,
+                    "owner": agent.owner,
+                    "parent_agent_id": agent.parent_agent_id
+                },
+                "ancestors": ancestors,
+                "descendants": descendants_data,
+                "direct_children_count": len(children),
+                "total_descendants_count": len(descendants)
+            }
+            click.echo(json.dumps(output, indent=2))
+        else:
+            # Table output
+            click.echo(f"Delegation Chain for Agent: {agent.name}")
+            click.echo("=" * 70)
+            click.echo()
+            click.echo(f"Agent ID: {agent.agent_id}")
+            click.echo(f"Owner: {agent.owner}")
+            click.echo()
+            
+            # Show ancestors (path from root to current)
+            if ancestors:
+                click.echo("Ancestors (from root):")
+                click.echo("-" * 70)
+                for i, ancestor in enumerate(ancestors):
+                    indent = "  " * i
+                    click.echo(f"{indent}└─ {ancestor['name']} ({ancestor['agent_id']})")
+                # Show current agent with proper indentation
+                indent = "  " * len(ancestors)
+                click.echo(f"{indent}└─ {agent.name} ({agent.agent_id}) ← YOU ARE HERE")
+                click.echo()
+            else:
+                click.echo("No parent agents (this is a root agent)")
+                click.echo()
+            
+            # Show descendants
+            if descendants:
+                click.echo(f"Descendants: {len(descendants)} total")
+                click.echo("-" * 70)
+                
+                # Build tree structure recursively
+                def print_tree(parent_id, indent=0):
+                    """Print agent tree recursively"""
+                    children = agent_registry.get_children(parent_id)
+                    for child in children:
+                        indent_str = "  " * indent
+                        click.echo(f"{indent_str}└─ {child.name} ({child.agent_id})")
+                        # Recursively print children
+                        print_tree(child.agent_id, indent + 1)
+                
+                print_tree(agent_id)
+                click.echo()
+                click.echo(f"Direct children: {len(children)}")
+            else:
+                click.echo("No child agents")
+    
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
