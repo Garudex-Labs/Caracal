@@ -404,7 +404,7 @@ class PolicyEvaluator:
     6. Implementing fail-closed semantics (deny on error or missing policy)
     """
 
-    def __init__(self, policy_store: PolicyStore, ledger_query, provisional_charge_manager=None):
+    def __init__(self, policy_store: PolicyStore, ledger_query, provisional_charge_manager=None, delegation_token_manager=None):
         """
         Initialize PolicyEvaluator.
         
@@ -412,10 +412,12 @@ class PolicyEvaluator:
             policy_store: PolicyStore instance for loading policies
             ledger_query: LedgerQuery instance for querying spending
             provisional_charge_manager: Optional ProvisionalChargeManager for v0.2 provisional charges
+            delegation_token_manager: Optional DelegationTokenManager for delegation token validation
         """
         self.policy_store = policy_store
         self.ledger_query = ledger_query
         self.provisional_charge_manager = provisional_charge_manager
+        self.delegation_token_manager = delegation_token_manager
         logger.info("PolicyEvaluator initialized")
 
     def check_budget(self, agent_id: str, estimated_cost: Optional[Decimal] = None, current_time: Optional[datetime] = None) -> PolicyDecision:
@@ -614,4 +616,174 @@ class PolicyEvaluator:
             )
             raise PolicyEvaluationError(
                 f"Critical error during policy evaluation for agent '{agent_id}': {e}"
+            ) from e
+
+
+    def check_budget_with_delegation(
+        self,
+        agent_id: str,
+        delegation_token: str,
+        estimated_cost: Optional[Decimal] = None,
+        current_time: Optional[datetime] = None
+    ) -> PolicyDecision:
+        """
+        Check budget with delegation token validation.
+        
+        Validates the delegation token and checks spending limits before
+        performing standard budget check.
+        
+        Implements fail-closed semantics:
+        - Denies if delegation_token_manager not available
+        - Denies if token validation fails
+        - Denies if token has expired
+        - Denies if spending exceeds token limit
+        - Denies if standard budget check fails
+        
+        Args:
+            agent_id: Agent identifier
+            delegation_token: JWT delegation token string
+            estimated_cost: Estimated cost for provisional charge
+            current_time: Current time for time window calculation (defaults to UTC now)
+            
+        Returns:
+            PolicyDecision with allow/deny, reason, and provisional_charge_id
+            
+        Raises:
+            PolicyEvaluationError: If evaluation fails critically (fail-closed)
+            
+        Requirements: 13.3, 13.4, 13.6
+        """
+        try:
+            # Use current UTC time if not provided
+            if current_time is None:
+                current_time = datetime.utcnow()
+            
+            # 1. Check if delegation token manager is available
+            if self.delegation_token_manager is None:
+                logger.error("Delegation token validation requested but DelegationTokenManager not available")
+                return PolicyDecision(
+                    allowed=False,
+                    reason="Delegation token validation not available"
+                )
+            
+            # 2. Validate delegation token
+            try:
+                token_claims = self.delegation_token_manager.validate_token(delegation_token)
+                logger.debug(
+                    f"Validated delegation token: issuer={token_claims.issuer}, "
+                    f"subject={token_claims.subject}, limit={token_claims.spending_limit}"
+                )
+            except Exception as e:
+                logger.warning(f"Delegation token validation failed for agent {agent_id}: {e}")
+                return PolicyDecision(
+                    allowed=False,
+                    reason=f"Invalid delegation token: {e}"
+                )
+            
+            # 3. Verify agent matches token subject
+            from uuid import UUID
+            try:
+                agent_uuid = UUID(agent_id)
+            except ValueError:
+                logger.error(f"Invalid agent ID format: {agent_id}")
+                return PolicyDecision(
+                    allowed=False,
+                    reason=f"Invalid agent ID format"
+                )
+            
+            if agent_uuid != token_claims.subject:
+                logger.warning(
+                    f"Agent ID mismatch: token subject={token_claims.subject}, "
+                    f"requesting agent={agent_id}"
+                )
+                return PolicyDecision(
+                    allowed=False,
+                    reason="Agent ID does not match delegation token subject"
+                )
+            
+            # 4. Check token expiration (already checked in validate_token, but double-check)
+            if current_time > token_claims.expiration:
+                logger.warning(f"Delegation token expired for agent {agent_id}")
+                return PolicyDecision(
+                    allowed=False,
+                    reason="Delegation token has expired"
+                )
+            
+            # 5. Query current spending for agent
+            # Calculate time window bounds (use daily for delegation tokens)
+            window_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            window_end = current_time
+            
+            try:
+                spending = self.ledger_query.sum_spending(agent_id, window_start, window_end)
+                logger.debug(
+                    f"Current spending for agent {agent_id}: {spending} {token_claims.currency} "
+                    f"(window: {window_start} to {window_end})"
+                )
+            except Exception as e:
+                # Fail closed on ledger query error
+                logger.error(
+                    f"Failed to query spending for agent {agent_id}: {e}",
+                    exc_info=True
+                )
+                raise PolicyEvaluationError(
+                    f"Failed to query spending for agent '{agent_id}': {e}"
+                ) from e
+            
+            # 6. Check spending against token limit
+            if not self.delegation_token_manager.check_spending_limit(
+                token_claims, agent_uuid, spending
+            ):
+                logger.info(
+                    f"Budget check denied for agent {agent_id}: "
+                    f"Spending {spending} exceeds delegation token limit {token_claims.spending_limit}"
+                )
+                return PolicyDecision(
+                    allowed=False,
+                    reason=f"Spending {spending} exceeds delegation token limit {token_claims.spending_limit} {token_claims.currency}"
+                )
+            
+            # 7. Check if estimated cost would exceed token limit
+            if estimated_cost is not None:
+                projected_spending = spending + estimated_cost
+                if projected_spending > token_claims.spending_limit:
+                    logger.info(
+                        f"Budget check denied for agent {agent_id}: "
+                        f"Projected spending {projected_spending} would exceed delegation token limit {token_claims.spending_limit}"
+                    )
+                    return PolicyDecision(
+                        allowed=False,
+                        reason=f"Projected spending {projected_spending} would exceed delegation token limit {token_claims.spending_limit} {token_claims.currency}"
+                    )
+            
+            # 8. Perform standard budget check (this will also check policy limits and create provisional charge)
+            standard_decision = self.check_budget(agent_id, estimated_cost, current_time)
+            
+            # 9. If standard check passes, return with delegation token info in reason
+            if standard_decision.allowed:
+                logger.info(
+                    f"Budget check with delegation allowed for agent {agent_id}: "
+                    f"Within both policy and delegation token limits"
+                )
+                return PolicyDecision(
+                    allowed=True,
+                    reason=f"Within budget (policy and delegation token validated)",
+                    remaining_budget=standard_decision.remaining_budget,
+                    provisional_charge_id=standard_decision.provisional_charge_id
+                )
+            else:
+                # Standard check failed (policy limit exceeded)
+                return standard_decision
+            
+        except PolicyEvaluationError:
+            # Re-raise PolicyEvaluationError (already logged)
+            raise
+        except Exception as e:
+            # Fail closed on any unexpected error
+            logger.error(
+                f"Critical error during delegation token policy evaluation for agent {agent_id}: {e}",
+                exc_info=True
+            )
+            raise PolicyEvaluationError(
+                f"Critical error during delegation token policy evaluation for agent '{agent_id}': {e}"
             ) from e
