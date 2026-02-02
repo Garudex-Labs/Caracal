@@ -353,3 +353,279 @@ class TestConfigurationValidation:
             # Should return defaults
             assert isinstance(config, CaracalConfig)
             assert config.defaults.currency == "USD"
+
+
+
+class TestV02Configuration:
+    """Test v0.2 configuration features."""
+    
+    def test_load_config_with_database_section(self):
+        """Test loading configuration with database section."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            config_data = {
+                'storage': {
+                    'agent_registry': '/tmp/agents.json',
+                    'policy_store': '/tmp/policies.json',
+                    'ledger': '/tmp/ledger.jsonl',
+                    'pricebook': '/tmp/pricebook.csv',
+                    'backup_dir': '/tmp/backups',
+                },
+                'database': {
+                    'host': 'testdb.example.com',
+                    'port': 5433,
+                    'database': 'testdb',
+                    'user': 'testuser',
+                    'password': 'testpass',
+                    'pool_size': 20,
+                },
+            }
+            
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f)
+            
+            config = load_config(config_path)
+            
+            assert config.database.host == 'testdb.example.com'
+            assert config.database.port == 5433
+            assert config.database.database == 'testdb'
+            assert config.database.user == 'testuser'
+            assert config.database.password == 'testpass'
+            assert config.database.pool_size == 20
+    
+    def test_load_config_with_gateway_section(self):
+        """Test loading configuration with gateway section."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            config_data = {
+                'storage': {
+                    'agent_registry': '/tmp/agents.json',
+                    'policy_store': '/tmp/policies.json',
+                    'ledger': '/tmp/ledger.jsonl',
+                    'pricebook': '/tmp/pricebook.csv',
+                    'backup_dir': '/tmp/backups',
+                },
+                'gateway': {
+                    'enabled': True,
+                    'listen_address': '0.0.0.0:9443',
+                    'auth_mode': 'jwt',
+                    'tls': {
+                        'enabled': True,
+                        'cert_file': '/etc/certs/server.crt',
+                        'key_file': '/etc/certs/server.key',
+                        'ca_file': '/etc/certs/ca.crt',
+                    },
+                    'jwt_public_key': '/etc/jwt/public.pem',
+                },
+            }
+            
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f)
+            
+            config = load_config(config_path)
+            
+            assert config.gateway.enabled == True
+            assert config.gateway.listen_address == '0.0.0.0:9443'
+            assert config.gateway.auth_mode == 'jwt'
+            assert config.gateway.tls.enabled == True
+            assert config.gateway.tls.cert_file == '/etc/certs/server.crt'
+            assert config.gateway.jwt_public_key == '/etc/jwt/public.pem'
+    
+    def test_load_config_with_ase_section(self):
+        """Test loading configuration with ASE section."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            config_data = {
+                'storage': {
+                    'agent_registry': '/tmp/agents.json',
+                    'policy_store': '/tmp/policies.json',
+                    'ledger': '/tmp/ledger.jsonl',
+                    'pricebook': '/tmp/pricebook.csv',
+                    'backup_dir': '/tmp/backups',
+                },
+                'ase': {
+                    'version': '1.0.8',
+                    'delegation_token_expiration_seconds': 3600,
+                    'key_algorithm': 'ES256',
+                    'provisional_charges': {
+                        'default_expiration_seconds': 600,
+                        'timeout_minutes': 30,
+                        'cleanup_interval_seconds': 120,
+                        'cleanup_batch_size': 500,
+                    },
+                },
+            }
+            
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f)
+            
+            config = load_config(config_path)
+            
+            assert config.ase.version == '1.0.8'
+            assert config.ase.delegation_token_expiration_seconds == 3600
+            assert config.ase.key_algorithm == 'ES256'
+            assert config.ase.provisional_charges.default_expiration_seconds == 600
+            assert config.ase.provisional_charges.timeout_minutes == 30
+    
+    def test_environment_variable_expansion(self):
+        """Test environment variable expansion in configuration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            # Set test environment variables
+            os.environ['TEST_DB_HOST'] = 'envhost.example.com'
+            os.environ['TEST_DB_PORT'] = '5433'
+            os.environ['TEST_DB_PASSWORD'] = 'envpass'
+            
+            try:
+                config_data = {
+                    'storage': {
+                        'agent_registry': '/tmp/agents.json',
+                        'policy_store': '/tmp/policies.json',
+                        'ledger': '/tmp/ledger.jsonl',
+                        'pricebook': '/tmp/pricebook.csv',
+                        'backup_dir': '/tmp/backups',
+                    },
+                    'database': {
+                        'host': '${TEST_DB_HOST}',
+                        'port': '${TEST_DB_PORT}',
+                        'database': '${TEST_DB_NAME:defaultdb}',  # With default
+                        'password': '${TEST_DB_PASSWORD}',
+                    },
+                }
+                
+                with open(config_path, 'w') as f:
+                    yaml.dump(config_data, f)
+                
+                config = load_config(config_path)
+                
+                assert config.database.host == 'envhost.example.com'
+                assert config.database.port == 5433
+                assert config.database.password == 'envpass'
+                assert config.database.database == 'defaultdb'  # Default value used
+            finally:
+                # Clean up environment variables
+                del os.environ['TEST_DB_HOST']
+                del os.environ['TEST_DB_PORT']
+                del os.environ['TEST_DB_PASSWORD']
+    
+    def test_validation_rejects_invalid_database_port(self):
+        """Test that invalid database port raises InvalidConfigurationError."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            config_data = {
+                'storage': {
+                    'agent_registry': '/tmp/agents.json',
+                    'policy_store': '/tmp/policies.json',
+                    'ledger': '/tmp/ledger.jsonl',
+                    'pricebook': '/tmp/pricebook.csv',
+                    'backup_dir': '/tmp/backups',
+                },
+                'database': {
+                    'port': 99999,  # Invalid port
+                },
+            }
+            
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f)
+            
+            with pytest.raises(InvalidConfigurationError) as exc_info:
+                load_config(config_path)
+            
+            assert "port must be between 1 and 65535" in str(exc_info.value)
+    
+    def test_validation_rejects_invalid_gateway_auth_mode(self):
+        """Test that invalid gateway auth mode raises InvalidConfigurationError."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            config_data = {
+                'storage': {
+                    'agent_registry': '/tmp/agents.json',
+                    'policy_store': '/tmp/policies.json',
+                    'ledger': '/tmp/ledger.jsonl',
+                    'pricebook': '/tmp/pricebook.csv',
+                    'backup_dir': '/tmp/backups',
+                },
+                'gateway': {
+                    'enabled': True,
+                    'listen_address': '0.0.0.0:8443',
+                    'auth_mode': 'invalid_mode',
+                    'tls': {
+                        'enabled': True,
+                        'cert_file': '/etc/certs/server.crt',
+                        'key_file': '/etc/certs/server.key',
+                    },
+                },
+            }
+            
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f)
+            
+            with pytest.raises(InvalidConfigurationError) as exc_info:
+                load_config(config_path)
+            
+            assert "auth_mode must be one of" in str(exc_info.value)
+    
+    def test_validation_requires_tls_cert_when_enabled(self):
+        """Test that TLS cert is required when TLS is enabled."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            config_data = {
+                'storage': {
+                    'agent_registry': '/tmp/agents.json',
+                    'policy_store': '/tmp/policies.json',
+                    'ledger': '/tmp/ledger.jsonl',
+                    'pricebook': '/tmp/pricebook.csv',
+                    'backup_dir': '/tmp/backups',
+                },
+                'gateway': {
+                    'enabled': True,
+                    'listen_address': '0.0.0.0:8443',
+                    'auth_mode': 'mtls',
+                    'tls': {
+                        'enabled': True,
+                        'cert_file': '',  # Empty cert file
+                        'key_file': '/etc/certs/server.key',
+                    },
+                },
+            }
+            
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f)
+            
+            with pytest.raises(InvalidConfigurationError) as exc_info:
+                load_config(config_path)
+            
+            assert "cert_file cannot be empty" in str(exc_info.value)
+    
+    def test_validation_rejects_invalid_ase_key_algorithm(self):
+        """Test that invalid ASE key algorithm raises InvalidConfigurationError."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = os.path.join(tmpdir, "config.yaml")
+            
+            config_data = {
+                'storage': {
+                    'agent_registry': '/tmp/agents.json',
+                    'policy_store': '/tmp/policies.json',
+                    'ledger': '/tmp/ledger.jsonl',
+                    'pricebook': '/tmp/pricebook.csv',
+                    'backup_dir': '/tmp/backups',
+                },
+                'ase': {
+                    'key_algorithm': 'INVALID_ALG',
+                },
+            }
+            
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f)
+            
+            with pytest.raises(InvalidConfigurationError) as exc_info:
+                load_config(config_path)
+            
+            assert "key_algorithm must be one of" in str(exc_info.value)
