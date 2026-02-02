@@ -188,6 +188,18 @@ from caracal.cli.mcp_service import mcp_service_group
 cli.add_command(mcp_service_group)
 
 
+@cli.group(name='provisional-charges')
+def provisional_charges():
+    """Manage provisional charges."""
+    pass
+
+
+# Import and register provisional charge commands
+from caracal.cli.provisional_charges import list_charges, cleanup_charges
+provisional_charges.add_command(list_charges, name='list')
+provisional_charges.add_command(cleanup_charges, name='cleanup')
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
