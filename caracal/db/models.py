@@ -239,3 +239,48 @@ class ProvisionalCharge(Base):
     
     def __repr__(self):
         return f"<ProvisionalCharge(charge_id={self.charge_id}, agent_id={self.agent_id}, amount={self.amount}, released={self.released})>"
+
+
+class AuditLog(Base):
+    """
+    Append-only audit log for all system events.
+    
+    Stores comprehensive audit trail of all events from Kafka topics.
+    Records are append-only with no updates or deletes allowed.
+    
+    Requirements: 17.1, 17.2, 17.3, 17.4
+    """
+    
+    __tablename__ = "audit_logs"
+    
+    # Primary key with auto-increment
+    log_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    
+    # Event identification
+    event_id = Column(String(255), nullable=False, index=True)
+    event_type = Column(String(100), nullable=False, index=True)
+    
+    # Event source
+    topic = Column(String(255), nullable=False, index=True)
+    partition = Column(BigInteger, nullable=False)
+    offset = Column(BigInteger, nullable=False)
+    
+    # Event timing
+    event_timestamp = Column(DateTime, nullable=False, index=True)
+    logged_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    # Event data
+    agent_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    correlation_id = Column(String(255), nullable=True, index=True)
+    event_data = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    
+    # Composite indexes for common queries
+    __table_args__ = (
+        Index("ix_audit_logs_agent_timestamp", "agent_id", "event_timestamp"),
+        Index("ix_audit_logs_type_timestamp", "event_type", "event_timestamp"),
+        Index("ix_audit_logs_correlation", "correlation_id", "event_timestamp"),
+        Index("ix_audit_logs_topic_partition_offset", "topic", "partition", "offset", unique=True),
+    )
+    
+    def __repr__(self):
+        return f"<AuditLog(log_id={self.log_id}, event_type={self.event_type}, event_id={self.event_id})>"
