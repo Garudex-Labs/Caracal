@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from caracal.kafka.consumer import BaseKafkaConsumer, KafkaMessage
 from caracal.db.models import LedgerEvent, ProvisionalCharge
-from caracal.db.connection import get_session
 from caracal.logging_config import get_logger
 from caracal.exceptions import InvalidLedgerEventError
 
