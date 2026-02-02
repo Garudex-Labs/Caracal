@@ -30,6 +30,20 @@ class StorageConfig:
 
 
 @dataclass
+class DatabaseConfig:
+    """Database configuration for PostgreSQL."""
+    
+    host: str = "localhost"
+    port: int = 5432
+    database: str = "caracal"
+    user: str = "caracal"
+    password: str = ""
+    pool_size: int = 10
+    max_overflow: int = 5
+    pool_timeout: int = 30
+
+
+@dataclass
 class DefaultsConfig:
     """Default values configuration."""
     
@@ -65,6 +79,7 @@ class CaracalConfig:
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
+    database: Optional[Dict[str, Any]] = None  # Optional database config for v0.2
 
 
 def get_default_config_path() -> str:
@@ -258,11 +273,15 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         ),
     )
     
+    # Parse database configuration (optional, for v0.2)
+    database = config_data.get('database')
+    
     return CaracalConfig(
         storage=storage,
         defaults=defaults,
         logging=logging,
         performance=performance,
+        database=database,
     )
 
 

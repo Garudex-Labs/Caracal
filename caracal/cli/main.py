@@ -185,6 +185,17 @@ from caracal.cli.mcp_service import mcp_service_group
 cli.add_command(mcp_service_group)
 
 
+@cli.group()
+def migrate():
+    """Migrate data between Caracal versions."""
+    pass
+
+
+# Import and register migration commands
+from caracal.cli.migrate import migrate_group
+cli.add_command(migrate_group)
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
