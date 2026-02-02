@@ -200,6 +200,19 @@ provisional_charges.add_command(list_charges, name='list')
 provisional_charges.add_command(cleanup_charges, name='cleanup')
 
 
+@cli.group(name='db')
+def db():
+    """Database management commands."""
+    pass
+
+
+# Import and register database commands
+from caracal.cli.db import init_db, migrate, db_status
+db.add_command(init_db)
+db.add_command(migrate)
+db.add_command(db_status, name='status')
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
