@@ -1,0 +1,41 @@
+# Example configuration for Caracal Core v0.2 with PostgreSQL
+# This configuration is used for migration from v0.1 to v0.2
+
+# File-based storage (v0.1 compatibility)
+storage:
+  agent_registry: ~/.caracal/agents.json
+  policy_store: ~/.caracal/policies.json
+  ledger: ~/.caracal/ledger.jsonl
+  pricebook: ~/.caracal/pricebook.csv
+  backup_dir: ~/.caracal/backups
+  backup_count: 3
+
+# PostgreSQL database configuration (v0.2)
+database:
+  host: localhost
+  port: 5432
+  database: caracal
+  user: caracal
+  password: your_password_here
+  pool_size: 10
+  max_overflow: 5
+  pool_timeout: 30
+
+# Default values
+defaults:
+  currency: USD
+  time_window: daily
+  default_budget: 100.00
+
+# Logging configuration
+logging:
+  level: INFO
+  file: ~/.caracal/caracal.log
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Performance tuning
+performance:
+  policy_eval_timeout_ms: 100
+  ledger_write_timeout_ms: 10
+  file_lock_timeout_s: 5
+  max_retries: 3

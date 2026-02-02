@@ -22,12 +22,24 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    JSON,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 Base = declarative_base()
+
+
+# Use JSONB for PostgreSQL, JSON for other databases
+def get_json_type():
+    """Get appropriate JSON type based on database dialect."""
+    try:
+        # Try to use JSONB for PostgreSQL
+        return JSONB
+    except:
+        # Fall back to JSON for other databases
+        return JSON
 
 
 class AgentIdentity(Base):
@@ -59,7 +71,7 @@ class AgentIdentity(Base):
     )
     
     # Metadata and authentication
-    agent_metadata = Column("metadata", JSONB, nullable=True)
+    agent_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
     api_key_hash = Column(String(255), nullable=True)
     
     # Relationships
@@ -161,7 +173,7 @@ class LedgerEvent(Base):
     currency = Column(String(3), nullable=False, default="USD")
     
     # Metadata and provisional charge tracking
-    event_metadata = Column("metadata", JSONB, nullable=True)
+    event_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
     provisional_charge_id = Column(PG_UUID(as_uuid=True), nullable=True)
     
     # Relationships
