@@ -1,0 +1,41 @@
+# Pod Disruption Budgets for Caracal Core v0.2
+# Requirements: 17.2, 17.4
+#
+# PDBs ensure minimum availability during voluntary disruptions
+# (node drains, cluster upgrades, etc.)
+#
+# Usage:
+#   kubectl apply -f pdb.yaml
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: caracal-gateway-pdb
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/component: gateway
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caracal
+      app.kubernetes.io/component: gateway
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: caracal-mcp-adapter-pdb
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/component: mcp-adapter
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caracal
+      app.kubernetes.io/component: mcp-adapter
