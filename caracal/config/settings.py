@@ -2,9 +2,11 @@
 Configuration management for Caracal Core.
 
 Loads YAML configuration from file with sensible defaults and validation.
+Supports environment variable substitution using ${ENV_VAR} syntax.
 """
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -15,6 +17,41 @@ from caracal.exceptions import ConfigurationError, InvalidConfigurationError
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _expand_env_vars(value: Any) -> Any:
+    """
+    Recursively expand environment variables in configuration values.
+    
+    Supports ${ENV_VAR} syntax with optional default values: ${ENV_VAR:default}
+    
+    Args:
+        value: Configuration value (string, dict, list, or other)
+    
+    Returns:
+        Value with environment variables expanded
+    
+    Examples:
+        "${DATABASE_HOST}" -> value of DATABASE_HOST env var
+        "${DATABASE_HOST:localhost}" -> value of DATABASE_HOST or "localhost" if not set
+        "host: ${DATABASE_HOST}, port: ${DATABASE_PORT:5432}" -> expanded string
+    """
+    if isinstance(value, str):
+        # Pattern matches ${VAR} or ${VAR:default}
+        pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
+        
+        def replace_env_var(match):
+            var_name = match.group(1)
+            default_value = match.group(2) if match.group(2) is not None else ""
+            return os.environ.get(var_name, default_value)
+        
+        return re.sub(pattern, replace_env_var, value)
+    elif isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [_expand_env_vars(item) for item in value]
+    else:
+        return value
 
 
 @dataclass
@@ -255,6 +292,10 @@ def load_config(config_path: Optional[str] = None) -> CaracalConfig:
     if config_data is None:
         logger.info(f"Configuration file {config_path} is empty, using defaults")
         return get_default_config()
+    
+    # Expand environment variables in configuration
+    config_data = _expand_env_vars(config_data)
+    logger.debug("Expanded environment variables in configuration")
     
     # Validate and build configuration
     try:
@@ -506,4 +547,112 @@ def _validate_config(config: CaracalConfig) -> None:
     if config.performance.max_retries < 1:
         raise InvalidConfigurationError(
             f"max_retries must be at least 1, got {config.performance.max_retries}"
+        )
+    
+    # Validate database configuration (v0.2)
+    if config.database.port < 1 or config.database.port > 65535:
+        raise InvalidConfigurationError(
+            f"database port must be between 1 and 65535, got {config.database.port}"
+        )
+    if not config.database.host:
+        raise InvalidConfigurationError("database host cannot be empty")
+    if not config.database.database:
+        raise InvalidConfigurationError("database name cannot be empty")
+    if not config.database.user:
+        raise InvalidConfigurationError("database user cannot be empty")
+    if config.database.pool_size < 1:
+        raise InvalidConfigurationError(
+            f"database pool_size must be at least 1, got {config.database.pool_size}"
+        )
+    if config.database.max_overflow < 0:
+        raise InvalidConfigurationError(
+            f"database max_overflow must be non-negative, got {config.database.max_overflow}"
+        )
+    if config.database.pool_timeout <= 0:
+        raise InvalidConfigurationError(
+            f"database pool_timeout must be positive, got {config.database.pool_timeout}"
+        )
+    
+    # Validate gateway configuration (v0.2)
+    if config.gateway.enabled:
+        if not config.gateway.listen_address:
+            raise InvalidConfigurationError("gateway listen_address cannot be empty when gateway is enabled")
+        
+        # Validate auth mode
+        valid_auth_modes = ["mtls", "jwt", "api_key"]
+        if config.gateway.auth_mode not in valid_auth_modes:
+            raise InvalidConfigurationError(
+                f"gateway auth_mode must be one of {valid_auth_modes}, "
+                f"got '{config.gateway.auth_mode}'"
+            )
+        
+        # Validate TLS configuration
+        if config.gateway.tls.enabled:
+            if not config.gateway.tls.cert_file:
+                raise InvalidConfigurationError("gateway TLS cert_file cannot be empty when TLS is enabled")
+            if not config.gateway.tls.key_file:
+                raise InvalidConfigurationError("gateway TLS key_file cannot be empty when TLS is enabled")
+            if config.gateway.auth_mode == "mtls" and not config.gateway.tls.ca_file:
+                raise InvalidConfigurationError("gateway TLS ca_file cannot be empty when mTLS authentication is enabled")
+        
+        # Validate JWT configuration
+        if config.gateway.auth_mode == "jwt" and not config.gateway.jwt_public_key:
+            raise InvalidConfigurationError("gateway jwt_public_key cannot be empty when JWT authentication is enabled")
+        
+        # Validate nonce cache TTL
+        if config.gateway.replay_protection_enabled and config.gateway.nonce_cache_ttl <= 0:
+            raise InvalidConfigurationError(
+                f"gateway nonce_cache_ttl must be positive, got {config.gateway.nonce_cache_ttl}"
+            )
+    
+    # Validate policy cache configuration (v0.2)
+    if config.policy_cache.enabled:
+        if config.policy_cache.ttl_seconds <= 0:
+            raise InvalidConfigurationError(
+                f"policy_cache ttl_seconds must be positive, got {config.policy_cache.ttl_seconds}"
+            )
+        if config.policy_cache.max_size < 1:
+            raise InvalidConfigurationError(
+                f"policy_cache max_size must be at least 1, got {config.policy_cache.max_size}"
+            )
+    
+    # Validate MCP adapter configuration (v0.2)
+    if config.mcp_adapter.enabled:
+        if not config.mcp_adapter.listen_address:
+            raise InvalidConfigurationError("mcp_adapter listen_address cannot be empty when MCP adapter is enabled")
+    
+    # Validate ASE configuration (v0.2)
+    if config.ase.delegation_token_expiration_seconds <= 0:
+        raise InvalidConfigurationError(
+            f"ase delegation_token_expiration_seconds must be positive, "
+            f"got {config.ase.delegation_token_expiration_seconds}"
+        )
+    
+    valid_key_algorithms = ["RS256", "ES256"]
+    if config.ase.key_algorithm not in valid_key_algorithms:
+        raise InvalidConfigurationError(
+            f"ase key_algorithm must be one of {valid_key_algorithms}, "
+            f"got '{config.ase.key_algorithm}'"
+        )
+    
+    # Validate provisional charge configuration
+    if config.ase.provisional_charges.default_expiration_seconds <= 0:
+        raise InvalidConfigurationError(
+            f"ase provisional_charges default_expiration_seconds must be positive, "
+            f"got {config.ase.provisional_charges.default_expiration_seconds}"
+        )
+    if config.ase.provisional_charges.timeout_minutes <= 0:
+        raise InvalidConfigurationError(
+            f"ase provisional_charges timeout_minutes must be positive, "
+            f"got {config.ase.provisional_charges.timeout_minutes}"
+        )
+    if config.ase.provisional_charges.cleanup_interval_seconds <= 0:
+        raise InvalidConfigurationError(
+            f"ase provisional_charges cleanup_interval_seconds must be positive, "
+            f"got {config.ase.provisional_charges.cleanup_interval_seconds}"
+        )
+    if config.ase.provisional_charges.cleanup_batch_size < 1:
+        raise InvalidConfigurationError(
+            f"ase provisional_charges cleanup_batch_size must be at least 1, "
+            f"got {config.ase.provisional_charges.cleanup_batch_size}"
         )
