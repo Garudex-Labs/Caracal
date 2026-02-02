@@ -543,3 +543,481 @@ storage:
         assert isinstance(context, BudgetCheckContext)
         assert context.client is client
         assert context.agent_id == agent.agent_id
+
+
+
+class TestSDKV02Features:
+    """Test v0.2 SDK features: create_child_agent, get_delegation_token, query_spending_with_children."""
+
+    def test_create_child_agent_without_budget(self, temp_dir, sample_pricebook_path):
+        """Test creating a child agent without delegated budget."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register parent agent
+        parent = client.agent_registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        # Create child agent without budget
+        result = client.create_child_agent(
+            parent_agent_id=parent.agent_id,
+            child_name="child-agent-1",
+            child_owner="child@example.com"
+        )
+        
+        # Verify result
+        assert "agent_id" in result
+        assert result["name"] == "child-agent-1"
+        assert result["owner"] == "child@example.com"
+        assert result["parent_agent_id"] == parent.agent_id
+        assert "delegation_token" not in result  # No token without budget
+        assert "policy_id" not in result  # No policy without budget
+        
+        # Verify child agent was registered
+        child = client.agent_registry.get_agent(result["agent_id"])
+        assert child is not None
+        assert child.name == "child-agent-1"
+        assert child.parent_agent_id == parent.agent_id
+
+    def test_create_child_agent_with_budget(self, temp_dir, sample_pricebook_path):
+        """Test creating a child agent with delegated budget."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register parent agent
+        parent = client.agent_registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        # Create child agent with budget
+        result = client.create_child_agent(
+            parent_agent_id=parent.agent_id,
+            child_name="child-agent-2",
+            child_owner="child@example.com",
+            delegated_budget=Decimal("50.00"),
+            budget_currency="USD",
+            budget_time_window="daily"
+        )
+        
+        # Verify result
+        assert "agent_id" in result
+        assert result["name"] == "child-agent-2"
+        assert result["owner"] == "child@example.com"
+        assert result["parent_agent_id"] == parent.agent_id
+        assert "policy_id" in result
+        assert result["delegated_budget"] == "50.00"
+        assert result["budget_currency"] == "USD"
+        assert result["budget_time_window"] == "daily"
+        assert "delegation_token" in result
+        
+        # Verify child agent was registered
+        child = client.agent_registry.get_agent(result["agent_id"])
+        assert child is not None
+        assert child.parent_agent_id == parent.agent_id
+        
+        # Verify policy was created
+        policies = client.policy_store.get_policies(result["agent_id"])
+        assert len(policies) == 1
+        # Handle both string and Decimal types for limit_amount
+        policy_limit = policies[0].limit_amount
+        if isinstance(policy_limit, str):
+            policy_limit = Decimal(policy_limit)
+        assert policy_limit == Decimal("50.00")
+        assert policies[0].delegated_from_agent_id == parent.agent_id
+
+    def test_create_child_agent_with_metadata(self, temp_dir, sample_pricebook_path):
+        """Test creating a child agent with custom metadata."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register parent agent
+        parent = client.agent_registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        # Create child agent with metadata
+        metadata = {"team": "engineering", "project": "test"}
+        result = client.create_child_agent(
+            parent_agent_id=parent.agent_id,
+            child_name="child-agent-3",
+            child_owner="child@example.com",
+            metadata=metadata
+        )
+        
+        # Verify child agent has metadata
+        child = client.agent_registry.get_agent(result["agent_id"])
+        assert child is not None
+        assert "team" in child.metadata
+        assert child.metadata["team"] == "engineering"
+
+    def test_get_delegation_token(self, temp_dir, sample_pricebook_path):
+        """Test generating a delegation token for existing child agent."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register parent and child agents
+        parent = client.agent_registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        child = client.agent_registry.register_agent(
+            name="child-agent",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Generate delegation token
+        token = client.get_delegation_token(
+            parent_agent_id=parent.agent_id,
+            child_agent_id=child.agent_id,
+            spending_limit=Decimal("25.00"),
+            currency="USD",
+            expiration_seconds=3600
+        )
+        
+        # Verify token was generated
+        assert token is not None
+        assert isinstance(token, str)
+        assert len(token) > 0
+        
+        # Token should be a valid JWT (has 3 parts separated by dots)
+        parts = token.split('.')
+        assert len(parts) == 3
+
+    def test_get_delegation_token_custom_operations(self, temp_dir, sample_pricebook_path):
+        """Test generating delegation token with custom allowed operations."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register parent and child agents
+        parent = client.agent_registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        child = client.agent_registry.register_agent(
+            name="child-agent",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Generate delegation token with custom operations
+        token = client.get_delegation_token(
+            parent_agent_id=parent.agent_id,
+            child_agent_id=child.agent_id,
+            spending_limit=Decimal("10.00"),
+            allowed_operations=["api_call"]  # Only API calls, no MCP tools
+        )
+        
+        # Verify token was generated
+        assert token is not None
+
+    def test_query_spending_with_children_no_children(self, temp_dir, sample_pricebook_path):
+        """Test querying spending for agent with no children."""
+        from datetime import datetime, timedelta
+        
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register agent
+        agent = client.agent_registry.register_agent(
+            name="solo-agent",
+            owner="solo@example.com"
+        )
+        
+        # Emit some events
+        client.emit_event(
+            agent_id=agent.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("1000")  # Cost: 0.030
+        )
+        
+        # Query spending
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=1)
+        
+        result = client.query_spending_with_children(
+            agent_id=agent.agent_id,
+            start_time=start_time,
+            end_time=end_time
+        )
+        
+        # Verify result
+        assert result["agent_id"] == agent.agent_id
+        assert Decimal(result["own_spending"]) == Decimal("0.030")
+        assert Decimal(result["children_spending"]) == Decimal("0")
+        assert Decimal(result["total_spending"]) == Decimal("0.030")
+        assert result["agent_count"] == 1
+
+    def test_query_spending_with_children_with_children(self, temp_dir, sample_pricebook_path):
+        """Test querying spending for agent with children."""
+        from datetime import datetime, timedelta
+        
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register parent agent
+        parent = client.agent_registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        # Create child agents
+        child1 = client.agent_registry.register_agent(
+            name="child-agent-1",
+            owner="child1@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        child2 = client.agent_registry.register_agent(
+            name="child-agent-2",
+            owner="child2@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Emit events for parent and children
+        client.emit_event(
+            agent_id=parent.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("1000")  # Cost: 0.030
+        )
+        
+        client.emit_event(
+            agent_id=child1.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("2000")  # Cost: 0.060
+        )
+        
+        client.emit_event(
+            agent_id=child2.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("500")  # Cost: 0.015
+        )
+        
+        # Query spending with children
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=1)
+        
+        result = client.query_spending_with_children(
+            agent_id=parent.agent_id,
+            start_time=start_time,
+            end_time=end_time
+        )
+        
+        # Verify result
+        assert result["agent_id"] == parent.agent_id
+        assert Decimal(result["own_spending"]) == Decimal("0.030")
+        assert Decimal(result["children_spending"]) == Decimal("0.075")  # 0.060 + 0.015
+        assert Decimal(result["total_spending"]) == Decimal("0.105")  # 0.030 + 0.075
+        assert result["agent_count"] == 3  # parent + 2 children
+
+    def test_query_spending_with_children_with_breakdown(self, temp_dir, sample_pricebook_path):
+        """Test querying spending with hierarchical breakdown."""
+        from datetime import datetime, timedelta
+        
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register parent agent
+        parent = client.agent_registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        # Create child agent
+        child = client.agent_registry.register_agent(
+            name="child-agent",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Emit events
+        client.emit_event(
+            agent_id=parent.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("1000")  # Cost: 0.030
+        )
+        
+        client.emit_event(
+            agent_id=child.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("2000")  # Cost: 0.060
+        )
+        
+        # Query spending with breakdown
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=1)
+        
+        result = client.query_spending_with_children(
+            agent_id=parent.agent_id,
+            start_time=start_time,
+            end_time=end_time,
+            include_breakdown=True
+        )
+        
+        # Verify result has breakdown
+        assert "breakdown" in result
+        breakdown = result["breakdown"]
+        
+        assert breakdown["agent_id"] == parent.agent_id
+        assert breakdown["agent_name"] == "parent-agent"
+        assert Decimal(breakdown["spending"]) == Decimal("0.030")
+        assert Decimal(breakdown["total_with_children"]) == Decimal("0.090")
+        
+        # Verify children in breakdown
+        assert len(breakdown["children"]) == 1
+        child_breakdown = breakdown["children"][0]
+        assert child_breakdown["agent_id"] == child.agent_id
+        assert child_breakdown["agent_name"] == "child-agent"
+        assert Decimal(child_breakdown["spending"]) == Decimal("0.060")
+
+    def test_query_spending_with_children_default_time_window(self, temp_dir, sample_pricebook_path):
+        """Test querying spending with default time window (current day)."""
+        # Create config
+        config_path = temp_dir / "config.yaml"
+        config_content = f"""
+storage:
+  agent_registry: {temp_dir}/agents.json
+  policy_store: {temp_dir}/policies.json
+  ledger: {temp_dir}/ledger.jsonl
+  pricebook: {sample_pricebook_path}
+  backup_dir: {temp_dir}/backups
+  backup_count: 3
+"""
+        config_path.write_text(config_content)
+        
+        # Initialize client
+        client = CaracalClient(config_path=str(config_path))
+        
+        # Register agent
+        agent = client.agent_registry.register_agent(
+            name="test-agent",
+            owner="test@example.com"
+        )
+        
+        # Emit event
+        client.emit_event(
+            agent_id=agent.agent_id,
+            resource_type="openai.gpt4.input_tokens",
+            quantity=Decimal("1000")
+        )
+        
+        # Query spending without specifying time window
+        result = client.query_spending_with_children(
+            agent_id=agent.agent_id
+        )
+        
+        # Verify result
+        assert result["agent_id"] == agent.agent_id
+        assert "start_time" in result
+        assert "end_time" in result
+        assert Decimal(result["total_spending"]) == Decimal("0.030")

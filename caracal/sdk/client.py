@@ -5,8 +5,9 @@ Provides developer-friendly API for budget checks and metering event emission.
 Implements fail-closed semantics for connection errors.
 """
 
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from caracal.config.settings import CaracalConfig, load_config
 from caracal.core.identity import AgentRegistry
@@ -92,12 +93,27 @@ class CaracalClient:
             ConnectionError: If any component fails to initialize
         """
         try:
-            # Initialize Agent Registry
+            # Initialize DelegationTokenManager first (needed by AgentRegistry)
+            from caracal.core.delegation import DelegationTokenManager
+            
+            # Create a temporary agent registry without delegation token manager
+            # This is needed because DelegationTokenManager needs AgentRegistry
+            # and AgentRegistry needs DelegationTokenManager (circular dependency)
             self.agent_registry = AgentRegistry(
                 registry_path=self.config.storage.agent_registry,
                 backup_count=self.config.storage.backup_count,
+                delegation_token_manager=None  # Will be set after creation
             )
             logger.debug("Initialized Agent Registry")
+            
+            # Now create DelegationTokenManager with the agent registry
+            self.delegation_token_manager = DelegationTokenManager(
+                agent_registry=self.agent_registry
+            )
+            logger.debug("Initialized Delegation Token Manager")
+            
+            # Set the delegation token manager in the agent registry
+            self.agent_registry.delegation_token_manager = self.delegation_token_manager
             
             # Initialize Policy Store (with agent registry for validation)
             self.policy_store = PolicyStore(
@@ -402,3 +418,358 @@ class CaracalClient:
         from caracal.sdk.context import BudgetCheckContext
         
         return BudgetCheckContext(self, agent_id)
+
+    def create_child_agent(
+        self,
+        parent_agent_id: str,
+        child_name: str,
+        child_owner: str,
+        delegated_budget: Optional[Decimal] = None,
+        budget_currency: str = "USD",
+        budget_time_window: str = "daily",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a child agent with optional delegated budget.
+        
+        This method creates a new agent as a child of the specified parent agent
+        and optionally creates a delegated budget policy for the child. If a
+        delegated budget is specified, a delegation token is also generated.
+        
+        This is a v0.2 feature that enables hierarchical agent organizations.
+        
+        Args:
+            parent_agent_id: Parent agent identifier
+            child_name: Name for the child agent (must be unique)
+            child_owner: Owner identifier for the child agent
+            delegated_budget: Optional budget amount to delegate to child
+            budget_currency: Currency code for budget (default: "USD")
+            budget_time_window: Time window for budget (default: "daily")
+            metadata: Optional metadata for the child agent
+            
+        Returns:
+            Dictionary containing:
+            - agent_id: Child agent ID
+            - name: Child agent name
+            - owner: Child agent owner
+            - parent_agent_id: Parent agent ID
+            - delegation_token: JWT token (if delegated_budget provided)
+            - policy_id: Budget policy ID (if delegated_budget provided)
+            
+        Raises:
+            ConnectionError: If agent creation fails (fail-closed)
+            
+        Requirements: 20.4
+            
+        Example:
+            >>> client = CaracalClient()
+            >>> child = client.create_child_agent(
+            ...     parent_agent_id="parent-uuid",
+            ...     child_name="child-agent-1",
+            ...     child_owner="team@example.com",
+            ...     delegated_budget=Decimal("100.00"),
+            ...     budget_currency="USD",
+            ...     budget_time_window="daily"
+            ... )
+            >>> print(f"Created child agent: {child['agent_id']}")
+            >>> print(f"Delegation token: {child['delegation_token']}")
+        """
+        try:
+            logger.info(
+                f"Creating child agent: parent={parent_agent_id}, "
+                f"name={child_name}, budget={delegated_budget}"
+            )
+            
+            # Register child agent with parent relationship
+            child_agent = self.agent_registry.register_agent(
+                name=child_name,
+                owner=child_owner,
+                metadata=metadata,
+                parent_agent_id=parent_agent_id,
+                generate_keys=True  # Generate keys for delegation tokens
+            )
+            
+            result = {
+                "agent_id": child_agent.agent_id,
+                "name": child_agent.name,
+                "owner": child_agent.owner,
+                "parent_agent_id": child_agent.parent_agent_id,
+                "created_at": child_agent.created_at,
+            }
+            
+            # Create delegated budget policy if budget specified
+            if delegated_budget is not None:
+                logger.debug(
+                    f"Creating delegated budget policy for child {child_agent.agent_id}: "
+                    f"{delegated_budget} {budget_currency}"
+                )
+                
+                # Create policy with delegation tracking
+                policy = self.policy_store.create_policy(
+                    agent_id=child_agent.agent_id,
+                    limit_amount=delegated_budget,
+                    time_window=budget_time_window,
+                    currency=budget_currency,
+                    delegated_from_agent_id=parent_agent_id
+                )
+                
+                result["policy_id"] = policy.policy_id
+                result["delegated_budget"] = str(delegated_budget)
+                result["budget_currency"] = budget_currency
+                result["budget_time_window"] = budget_time_window
+                
+                # Generate delegation token
+                delegation_token = self.agent_registry.generate_delegation_token(
+                    parent_agent_id=parent_agent_id,
+                    child_agent_id=child_agent.agent_id,
+                    spending_limit=float(delegated_budget),
+                    currency=budget_currency,
+                    expiration_seconds=86400,  # 24 hours
+                    allowed_operations=["api_call", "mcp_tool"]
+                )
+                
+                if delegation_token:
+                    result["delegation_token"] = delegation_token
+                    logger.debug(f"Generated delegation token for child {child_agent.agent_id}")
+                else:
+                    logger.warning(
+                        f"Failed to generate delegation token for child {child_agent.agent_id}"
+                    )
+            
+            logger.info(
+                f"Successfully created child agent: {child_agent.agent_id} "
+                f"(parent: {parent_agent_id})"
+            )
+            
+            return result
+            
+        except Exception as e:
+            # Fail closed: log and re-raise
+            logger.error(
+                f"Failed to create child agent for parent {parent_agent_id}: {e}",
+                exc_info=True
+            )
+            raise ConnectionError(
+                f"Failed to create child agent: {e}. "
+                "Failing closed to prevent inconsistent state."
+            ) from e
+
+    def get_delegation_token(
+        self,
+        parent_agent_id: str,
+        child_agent_id: str,
+        spending_limit: Decimal,
+        currency: str = "USD",
+        expiration_seconds: int = 86400,
+        allowed_operations: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        """
+        Generate a delegation token for an existing child agent.
+        
+        This method generates an ASE v1.0.8 delegation token that allows a child
+        agent to prove authorization cryptographically. The token is signed with
+        the parent agent's private key and includes spending limits and expiration.
+        
+        This is a v0.2 feature for delegation token management.
+        
+        Args:
+            parent_agent_id: Parent agent identifier (issuer)
+            child_agent_id: Child agent identifier (subject)
+            spending_limit: Maximum spending allowed
+            currency: Currency code (default: "USD")
+            expiration_seconds: Token validity duration in seconds (default: 86400 = 24 hours)
+            allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
+            
+        Returns:
+            JWT delegation token string, or None if token generation fails
+            
+        Raises:
+            ConnectionError: If token generation fails (fail-closed)
+            
+        Requirements: 20.5
+            
+        Example:
+            >>> client = CaracalClient()
+            >>> token = client.get_delegation_token(
+            ...     parent_agent_id="parent-uuid",
+            ...     child_agent_id="child-uuid",
+            ...     spending_limit=Decimal("50.00"),
+            ...     currency="USD",
+            ...     expiration_seconds=3600  # 1 hour
+            ... )
+            >>> print(f"Delegation token: {token}")
+        """
+        try:
+            logger.info(
+                f"Generating delegation token: parent={parent_agent_id}, "
+                f"child={child_agent_id}, limit={spending_limit} {currency}"
+            )
+            
+            # Generate delegation token
+            token = self.agent_registry.generate_delegation_token(
+                parent_agent_id=parent_agent_id,
+                child_agent_id=child_agent_id,
+                spending_limit=float(spending_limit),
+                currency=currency,
+                expiration_seconds=expiration_seconds,
+                allowed_operations=allowed_operations
+            )
+            
+            if token:
+                logger.info(
+                    f"Successfully generated delegation token for child {child_agent_id}"
+                )
+            else:
+                logger.warning(
+                    f"Failed to generate delegation token for child {child_agent_id}: "
+                    "DelegationTokenManager not available"
+                )
+            
+            return token
+            
+        except Exception as e:
+            # Fail closed: log and re-raise
+            logger.error(
+                f"Failed to generate delegation token for child {child_agent_id}: {e}",
+                exc_info=True
+            )
+            raise ConnectionError(
+                f"Failed to generate delegation token: {e}. "
+                "Failing closed to prevent unauthorized access."
+            ) from e
+
+    def query_spending_with_children(
+        self,
+        agent_id: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        include_breakdown: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Query spending for an agent including all child agents.
+        
+        This method aggregates spending across a parent agent and all its descendants
+        (children, grandchildren, etc.). It can return either a simple total or a
+        detailed hierarchical breakdown.
+        
+        This is a v0.2 feature for hierarchical spending rollup.
+        
+        Args:
+            agent_id: Parent agent identifier
+            start_time: Start of time window (defaults to beginning of current day)
+            end_time: End of time window (defaults to current time)
+            include_breakdown: If True, return hierarchical breakdown; if False, return totals only
+            
+        Returns:
+            Dictionary containing:
+            - agent_id: Parent agent ID
+            - start_time: Query start time (ISO format)
+            - end_time: Query end time (ISO format)
+            - own_spending: Parent's own spending
+            - total_spending: Total spending including all descendants
+            - children_spending: Total spending by all descendants
+            - breakdown: Hierarchical breakdown (if include_breakdown=True)
+            
+        Raises:
+            ConnectionError: If query fails (fail-closed)
+            
+        Requirements: 20.5
+            
+        Example:
+            >>> from datetime import datetime, timedelta
+            >>> client = CaracalClient()
+            >>> 
+            >>> # Query last 24 hours with breakdown
+            >>> end = datetime.utcnow()
+            >>> start = end - timedelta(days=1)
+            >>> result = client.query_spending_with_children(
+            ...     agent_id="parent-uuid",
+            ...     start_time=start,
+            ...     end_time=end,
+            ...     include_breakdown=True
+            ... )
+            >>> print(f"Total spending: {result['total_spending']}")
+            >>> print(f"Parent spending: {result['own_spending']}")
+            >>> print(f"Children spending: {result['children_spending']}")
+        """
+        try:
+            # Import datetime here to avoid circular imports
+            from datetime import datetime, timedelta
+            
+            # Default time window: current day
+            if end_time is None:
+                end_time = datetime.utcnow()
+            
+            if start_time is None:
+                # Start of current day
+                start_time = end_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            logger.info(
+                f"Querying spending with children: agent={agent_id}, "
+                f"start={start_time.isoformat()}, end={end_time.isoformat()}, "
+                f"breakdown={include_breakdown}"
+            )
+            
+            # Get spending breakdown by agent
+            spending_by_agent = self.ledger_query.sum_spending_with_children(
+                agent_id=agent_id,
+                start_time=start_time,
+                end_time=end_time,
+                agent_registry=self.agent_registry
+            )
+            
+            # Calculate totals
+            own_spending = spending_by_agent.get(agent_id, Decimal('0'))
+            total_spending = sum(spending_by_agent.values())
+            children_spending = total_spending - own_spending
+            
+            result = {
+                "agent_id": agent_id,
+                "start_time": start_time.isoformat() + "Z",
+                "end_time": end_time.isoformat() + "Z",
+                "own_spending": str(own_spending),
+                "children_spending": str(children_spending),
+                "total_spending": str(total_spending),
+                "agent_count": len(spending_by_agent),
+            }
+            
+            # Add hierarchical breakdown if requested
+            if include_breakdown:
+                breakdown = self.ledger_query.get_spending_breakdown(
+                    agent_id=agent_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    agent_registry=self.agent_registry
+                )
+                
+                # Convert Decimal values to strings for JSON serialization
+                def convert_decimals(obj):
+                    if isinstance(obj, dict):
+                        return {k: convert_decimals(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [convert_decimals(item) for item in obj]
+                    elif isinstance(obj, Decimal):
+                        return str(obj)
+                    else:
+                        return obj
+                
+                result["breakdown"] = convert_decimals(breakdown)
+            
+            logger.info(
+                f"Spending query complete: agent={agent_id}, "
+                f"total={total_spending}, own={own_spending}, "
+                f"children={children_spending}, agents={len(spending_by_agent)}"
+            )
+            
+            return result
+            
+        except Exception as e:
+            # Fail closed: log and re-raise
+            logger.error(
+                f"Failed to query spending with children for agent {agent_id}: {e}",
+                exc_info=True
+            )
+            raise ConnectionError(
+                f"Failed to query spending with children: {e}. "
+                "Failing closed to prevent incorrect budget calculations."
+            ) from e
