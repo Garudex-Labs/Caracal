@@ -14,6 +14,7 @@ from uuid import UUID
 from ase.protocol import MeteringEvent
 from caracal.core.metering import MeteringCollector
 from caracal.core.policy import PolicyEvaluator
+from caracal.kafka.producer import KafkaEventProducer
 from caracal.core.error_handling import (
     get_error_handler,
     handle_error_with_denial,
@@ -92,7 +93,9 @@ class MCPAdapter:
         self,
         policy_evaluator: PolicyEvaluator,
         metering_collector: MeteringCollector,
-        cost_calculator: MCPCostCalculator
+        cost_calculator: MCPCostCalculator,
+        kafka_producer: Optional[KafkaEventProducer] = None,
+        enable_kafka: bool = False
     ):
         """
         Initialize MCPAdapter.
@@ -101,11 +104,15 @@ class MCPAdapter:
             policy_evaluator: PolicyEvaluator for budget checks
             metering_collector: MeteringCollector for emitting events
             cost_calculator: MCPCostCalculator for cost estimation
+            kafka_producer: Optional KafkaEventProducer for v0.3 event publishing
+            enable_kafka: Enable Kafka event publishing (default: False for v0.2 compatibility)
         """
         self.policy_evaluator = policy_evaluator
         self.metering_collector = metering_collector
         self.cost_calculator = cost_calculator
-        logger.info("MCPAdapter initialized")
+        self.kafka_producer = kafka_producer
+        self.enable_kafka = enable_kafka
+        logger.info(f"MCPAdapter initialized with kafka_enabled={enable_kafka}")
 
     async def intercept_tool_call(
         self,
@@ -185,24 +192,90 @@ class MCPAdapter:
             )
             
             # 6. Emit metering event with actual cost
-            metering_event = MeteringEvent(
-                agent_id=agent_id,
-                resource_type=f"mcp.tool.{tool_name}",
-                quantity=Decimal("1"),  # One tool invocation
-                timestamp=datetime.utcnow(),
-                metadata={
-                    "tool_name": tool_name,
-                    "tool_args": tool_args,
-                    "estimated_cost": str(estimated_cost),
-                    "actual_cost": str(actual_cost),
-                    "mcp_context": mcp_context.metadata,
-                }
-            )
-            
-            self.metering_collector.collect_event(
-                metering_event,
-                provisional_charge_id=policy_decision.provisional_charge_id
-            )
+            # v0.3: Publish to Kafka if enabled, otherwise write directly to ledger
+            if self.enable_kafka and self.kafka_producer:
+                try:
+                    await self.kafka_producer.publish_metering_event(
+                        agent_id=agent_id,
+                        resource_type=f"mcp.tool.{tool_name}",
+                        quantity=Decimal("1"),
+                        cost=actual_cost,
+                        currency="USD",
+                        provisional_charge_id=policy_decision.provisional_charge_id,
+                        metadata={
+                            "tool_name": tool_name,
+                            "tool_args": str(tool_args),
+                            "estimated_cost": str(estimated_cost),
+                            "actual_cost": str(actual_cost),
+                        },
+                        timestamp=datetime.utcnow()
+                    )
+                    
+                    logger.info(
+                        f"Published MCP metering event to Kafka: tool={tool_name}, "
+                        f"agent={agent_id}, cost={actual_cost} USD"
+                    )
+                    
+                    # Also publish policy decision event
+                    await self.kafka_producer.publish_policy_decision(
+                        agent_id=agent_id,
+                        decision="allowed",
+                        reason=policy_decision.reason,
+                        estimated_cost=estimated_cost,
+                        remaining_budget=policy_decision.remaining_budget,
+                        metadata={
+                            "tool_name": tool_name,
+                            "resource_type": f"mcp.tool.{tool_name}",
+                        },
+                        timestamp=datetime.utcnow()
+                    )
+                    
+                except Exception as kafka_error:
+                    logger.error(
+                        f"Failed to publish MCP events to Kafka for agent {agent_id}: {kafka_error}",
+                        exc_info=True
+                    )
+                    # Fall back to direct ledger write
+                    logger.warning("Falling back to direct ledger write due to Kafka failure")
+                    
+                    metering_event = MeteringEvent(
+                        agent_id=agent_id,
+                        resource_type=f"mcp.tool.{tool_name}",
+                        quantity=Decimal("1"),
+                        timestamp=datetime.utcnow(),
+                        metadata={
+                            "tool_name": tool_name,
+                            "tool_args": tool_args,
+                            "estimated_cost": str(estimated_cost),
+                            "actual_cost": str(actual_cost),
+                            "mcp_context": mcp_context.metadata,
+                        }
+                    )
+                    
+                    self.metering_collector.collect_event(
+                        metering_event,
+                        provisional_charge_id=policy_decision.provisional_charge_id
+                    )
+            else:
+                # v0.2 compatibility: Direct ledger write
+                metering_event = MeteringEvent(
+                    agent_id=agent_id,
+                    resource_type=f"mcp.tool.{tool_name}",
+                    quantity=Decimal("1"),  # One tool invocation
+                    timestamp=datetime.utcnow(),
+                    metadata={
+                        "tool_name": tool_name,
+                        "tool_args": tool_args,
+                        "estimated_cost": str(estimated_cost),
+                        "actual_cost": str(actual_cost),
+                        "mcp_context": mcp_context.metadata,
+                    }
+                )
+                
+                self.metering_collector.collect_event(
+                    metering_event,
+                    provisional_charge_id=policy_decision.provisional_charge_id
+                )
             
             logger.info(
                 f"MCP tool call completed: tool={tool_name}, agent={agent_id}, "
@@ -327,25 +400,93 @@ class MCPAdapter:
             )
             
             # 6. Emit metering event with actual cost
-            metering_event = MeteringEvent(
-                agent_id=agent_id,
-                resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
-                quantity=Decimal(str(resource.size)),  # Size in bytes
-                timestamp=datetime.utcnow(),
-                metadata={
-                    "resource_uri": resource_uri,
-                    "mime_type": resource.mime_type,
-                    "size_bytes": resource.size,
-                    "estimated_cost": str(estimated_cost),
-                    "actual_cost": str(actual_cost),
-                    "mcp_context": mcp_context.metadata,
-                }
-            )
-            
-            self.metering_collector.collect_event(
-                metering_event,
-                provisional_charge_id=policy_decision.provisional_charge_id
-            )
+            # v0.3: Publish to Kafka if enabled, otherwise write directly to ledger
+            if self.enable_kafka and self.kafka_producer:
+                try:
+                    await self.kafka_producer.publish_metering_event(
+                        agent_id=agent_id,
+                        resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
+                        quantity=Decimal(str(resource.size)),
+                        cost=actual_cost,
+                        currency="USD",
+                        provisional_charge_id=policy_decision.provisional_charge_id,
+                        metadata={
+                            "resource_uri": resource_uri,
+                            "mime_type": resource.mime_type,
+                            "size_bytes": str(resource.size),
+                            "estimated_cost": str(estimated_cost),
+                            "actual_cost": str(actual_cost),
+                        },
+                        timestamp=datetime.utcnow()
+                    )
+                    
+                    logger.info(
+                        f"Published MCP resource metering event to Kafka: uri={resource_uri}, "
+                        f"agent={agent_id}, size={resource.size} bytes, cost={actual_cost} USD"
+                    )
+                    
+                    # Also publish policy decision event
+                    await self.kafka_producer.publish_policy_decision(
+                        agent_id=agent_id,
+                        decision="allowed",
+                        reason=policy_decision.reason,
+                        estimated_cost=estimated_cost,
+                        remaining_budget=policy_decision.remaining_budget,
+                        metadata={
+                            "resource_uri": resource_uri,
+                            "resource_type": f"mcp.resource.{self._get_resource_type(resource_uri)}",
+                        },
+                        timestamp=datetime.utcnow()
+                    )
+                    
+                except Exception as kafka_error:
+                    logger.error(
+                        f"Failed to publish MCP resource events to Kafka for agent {agent_id}: {kafka_error}",
+                        exc_info=True
+                    )
+                    # Fall back to direct ledger write
+                    logger.warning("Falling back to direct ledger write due to Kafka failure")
+                    
+                    metering_event = MeteringEvent(
+                        agent_id=agent_id,
+                        resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
+                        quantity=Decimal(str(resource.size)),
+                        timestamp=datetime.utcnow(),
+                        metadata={
+                            "resource_uri": resource_uri,
+                            "mime_type": resource.mime_type,
+                            "size_bytes": resource.size,
+                            "estimated_cost": str(estimated_cost),
+                            "actual_cost": str(actual_cost),
+                            "mcp_context": mcp_context.metadata,
+                        }
+                    )
+                    
+                    self.metering_collector.collect_event(
+                        metering_event,
+                        provisional_charge_id=policy_decision.provisional_charge_id
+                    )
+            else:
+                # v0.2 compatibility: Direct ledger write
+                metering_event = MeteringEvent(
+                    agent_id=agent_id,
+                    resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
+                    quantity=Decimal(str(resource.size)),  # Size in bytes
+                    timestamp=datetime.utcnow(),
+                    metadata={
+                        "resource_uri": resource_uri,
+                        "mime_type": resource.mime_type,
+                        "size_bytes": resource.size,
+                        "estimated_cost": str(estimated_cost),
+                        "actual_cost": str(actual_cost),
+                        "mcp_context": mcp_context.metadata,
+                    }
+                )
+                
+                self.metering_collector.collect_event(
+                    metering_event,
+                    provisional_charge_id=policy_decision.provisional_charge_id
+                )
             
             logger.info(
                 f"MCP resource read completed: uri={resource_uri}, agent={agent_id}, "
