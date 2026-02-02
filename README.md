@@ -1,147 +1,58 @@
 # Caracal Core
 
-Economic control plane for AI agents.
+**Economic control plane for AI agents.**
 
-## Overview
+Caracal Core is a production-grade infrastructure layer that enforces budget policies, tracks resource usage, and manages agent identities at the network level. It acts as an economic firewall for agentic systems, ensuring autonomous agents operate within defined financial boundaries.
 
-Caracal Core is an open-source economic infrastructure layer for AI agents that provides:
+## Key Capabilities
 
-- **Economic Identity**: Unique identifiers for agents with ownership metadata
-- **Budget Policies**: Spending limits with time-based constraints
-- **Policy Enforcement**: Fail-closed budget checks before agent execution
-- **Immutable Ledger**: Append-only audit trail of all spending events
-- **Metering**: Resource usage tracking with cost calculation
-
-## Installation
-
-### Using uv (recommended)
-
-```bash
-# Create virtual environment
-uv venv
-
-# Activate virtual environment
-source .venv/bin/activate  # On Unix/macOS
-# or
-.venv\Scripts\activate  # On Windows
-
-# Install Caracal Core
-uv pip install -e .
-
-# Install with development dependencies
-uv pip install -e ".[dev]"
-```
-
-### Using pip
-
-```bash
-pip install caracal-core
-```
+*   **Network-Enforced Policies**: Gateway Proxy intercepts API calls to enforce budgets before execution.
+*   **Hierarchical Delegation**: Support for parent-child agent structures with delegated spending limits.
+*   **Production Storage**: PostgreSQL backend for scalable identity and ledger management.
+*   **MCP Integration**: Native adapter for the Model Context Protocol (MCP).
+*   **Economic Settlement**: Integrated with ASE v1.1.0 for cryptographic delegation and settlement.
 
 ## Quick Start
 
-### Initialize Caracal
+### Installation
+
+```bash
+uv pip install caracal-core
+# or
+pip install caracal-core
+```
+
+### Initialize System
+
+Initialize the configuration and database schema:
 
 ```bash
 caracal init
+caracal db migrate up
 ```
 
-This creates the `~/.caracal/` directory with default configuration.
+### Start Gateway
 
-### Register an Agent
+Launch the policy enforcement gateway:
 
 ```bash
-caracal agent register --name "my-agent" --owner "user@example.com"
-```
-
-### Create a Budget Policy
-
-```bash
-caracal policy create --agent-id <agent-id> --limit 100.00 --window daily
-```
-
-### Use the SDK
-
-```python
-from caracal.sdk.client import CaracalClient
-
-client = CaracalClient()
-
-# Budget check context manager
-with client.budget_check(agent_id="my-agent"):
-    # Your agent code here
-    result = call_expensive_api()
-
-# Emit metering event
-client.emit_event(
-    agent_id="my-agent",
-    resource_type="openai.gpt4.input_tokens",
-    quantity=1000
-)
-```
-
-### Query the Ledger
-
-```bash
-# Query by agent
-caracal ledger query --agent-id <agent-id>
-
-# Query by date range
-caracal ledger query --start 2024-01-01 --end 2024-01-31
-
-# Get spending summary
-caracal ledger summary --agent-id <agent-id>
-```
-
-## Development
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run unit tests only
-pytest tests/unit/
-
-# Run property-based tests
-pytest tests/property/ -m property
-
-# Run with coverage
-pytest --cov=caracal --cov-report=html
-```
-
-### Code Quality
-
-```bash
-# Format code
-black caracal/ tests/
-
-# Lint code
-ruff caracal/ tests/
-
-# Type checking
-mypy caracal/
+caracal gateway start
 ```
 
 ## Architecture
 
-Caracal Core follows a modular architecture:
+Caracal Core v0.2.0 follows a modular design:
 
-- `caracal.core`: Core primitives (identity, policy, ledger, metering)
-- `caracal.sdk`: Python SDK for agent integration
-- `caracal.cli`: Command-line interface
-- `caracal.config`: Configuration management
+*   **Gateway Proxy**: High-performance HTTP/gRPC reverse proxy for interception.
+*   **Policy Engine**: Stateless decision engine for real-time budget enforcement.
+*   **Agent Registry**: Identity management with PostgreSQL persistence.
+*   **Ledger**: Immutable, append-only record of all economic events.
+*   **MCP Adapter**: Bridge for connecting MCP-compliant tools and agents.
 
-## Requirements
+## Documentation
 
-- Python 3.10+
-- Dependencies: click, pyyaml, hypothesis, ase-protocol
+For full documentation, standard compliance details, and API reference, please visit our [official documentation](https://docs.caracal.dev).
 
 ## License
 
-GNU AFFERO GENERAL PUBLIC LICENSE v3 - See LICENSE file for details.
-
-## Contributing
-
-Contributions are welcome! Please see CONTRIBUTING.md for guidelines.
+GNU Affero General Public License v3.0

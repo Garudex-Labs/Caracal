@@ -1,40 +1,52 @@
-# Contributing
+# Contributing to Caracal Core
 
-When contributing to this repository, please first discuss the change you wish to make via issue, email, or any other method with the owners of this repository before making a change.
-Please note we have a [code of conduct](CODE_OF_CONDUCT.md), please follow it in all your interactions with the project.
+We welcome contributions to Caracal Core. Please follow these guidelines to ensure a smooth collaboration process.
 
-## Development environment setup
+## Development Setup
 
-To set up a development environment, please follow these steps:
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/Garudex-Labs/Caracal.git
+    cd Caracal
+    ```
 
-1. Clone the repo
+2.  **Install dependencies using uv (recommended):**
+    ```bash
+    uv venv
+    source .venv/bin/activate
+    uv pip install -e ".[dev]"
+    ```
 
-   ```sh
-   git clone https://github.com/GITHUB_USERNAME/Caracal
-   ```
+## Quality Standards
 
-2. TODO
+All contributions must pass our quality checks before merging.
 
-## Issues and feature requests
+### Testing
+Run the comprehensive test suite to ensure no regressions:
 
-You've found a bug in the source code, a mistake in the documentation or maybe you'd like a new feature? You can help us by [submitting an issue on GitHub](https://github.com/Garudex-Labs/Caracal/issues). Before you create an issue, make sure to search the issue archive -- your issue may have already been addressed!
+```bash
+pytest
+```
 
-Please try to create bug reports that are:
+### Linting & Formatting
+We strictly enforce code style and type safety.
 
-- _Reproducible._ Include steps to reproduce the problem.
-- _Specific._ Include as much detail as possible: which version, what environment, etc.
-- _Unique._ Do not duplicate existing opened issues.
-- _Scoped to a Single Bug._ One bug per report.
+```bash
+# Format code
+black caracal/ tests/
 
-**Even better: Submit a pull request with a fix or new feature!**
+# Lint code
+ruff check caracal/ tests/
 
-### How to submit a Pull Request
+# Type check
+mypy caracal/
+```
 
-1. Search our repository for open or closed
-   [Pull Requests](https://github.com/Garudex-Labs/Caracal/pulls)
-   that relate to your submission. You don't want to duplicate effort.
-2. Fork the project
-3. Create your feature branch (`git checkout -b feat/amazing_feature`)
-4. Commit your changes (`git commit -m 'feat: add amazing_feature'`) PROJECT_NAME uses [conventional commits](https://www.conventionalcommits.org), so please follow the specification in your commit messages.
-5. Push to the branch (`git push origin feat/amazing_feature`)
-6. [Open a Pull Request](https://github.com/Garudex-Labs/Caracal/compare?expand=1)
+## Submission Process
+
+1.  Fork the repository and create a feature branch (`feat/your-feature`).
+2.  Commit your changes using [Conventional Commits](https://www.conventionalcommits.org).
+3.  Ensure all tests and linting checks pass locally.
+4.  Submit a Pull Request and address any review comments.
+
+Thank you for helping build the economic infrastructure for the agentic web.
