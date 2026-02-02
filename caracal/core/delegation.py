@@ -25,6 +25,11 @@ from caracal.exceptions import (
     TokenExpiredError,
     TokenValidationError,
 )
+from caracal.core.error_handling import (
+    get_error_handler,
+    ErrorCategory,
+    ErrorSeverity
+)
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -266,23 +271,50 @@ class DelegationTokenManager:
             issuer_id = unverified_header.get("kid")
             
             if issuer_id is None:
-                logger.error("Token missing 'kid' header")
-                raise TokenValidationError("Token missing 'kid' (issuer) header")
+                # Fail closed: deny if issuer cannot be determined (Requirement 23.3)
+                error_handler = get_error_handler("delegation-token-manager")
+                error = TokenValidationError("Token missing 'kid' (issuer) header")
+                error_handler.handle_error(
+                    error=error,
+                    category=ErrorCategory.DELEGATION,
+                    operation="validate_token",
+                    metadata={"token_header": unverified_header},
+                    severity=ErrorSeverity.CRITICAL
+                )
+                logger.error("Token missing 'kid' header (fail-closed)")
+                raise error
             
             # Get issuer agent
             issuer_agent = self.agent_registry.get_agent(issuer_id)
             if issuer_agent is None:
-                logger.error(f"Issuer agent not found: {issuer_id}")
-                raise AgentNotFoundError(
-                    f"Issuer agent with ID '{issuer_id}' does not exist"
+                # Fail closed: deny if issuer agent doesn't exist (Requirement 23.3)
+                error_handler = get_error_handler("delegation-token-manager")
+                error = AgentNotFoundError(f"Issuer agent with ID '{issuer_id}' does not exist")
+                error_handler.handle_error(
+                    error=error,
+                    category=ErrorCategory.DELEGATION,
+                    operation="validate_token",
+                    metadata={"issuer_id": issuer_id},
+                    severity=ErrorSeverity.CRITICAL
                 )
+                logger.error(f"Issuer agent not found (fail-closed): {issuer_id}")
+                raise error
             
             # Get issuer's public key from metadata
             if issuer_agent.metadata is None or "public_key_pem" not in issuer_agent.metadata:
-                logger.error(f"Issuer agent {issuer_id} has no public key")
-                raise TokenValidationError(
-                    f"Issuer agent '{issuer_id}' has no public key for verification"
+                # Fail closed: deny if public key not available (Requirement 23.3)
+                error_handler = get_error_handler("delegation-token-manager")
+                error = TokenValidationError(f"Issuer agent '{issuer_id}' has no public key for verification")
+                error_handler.handle_error(
+                    error=error,
+                    category=ErrorCategory.DELEGATION,
+                    operation="validate_token",
+                    agent_id=issuer_id,
+                    metadata={"has_metadata": issuer_agent.metadata is not None},
+                    severity=ErrorSeverity.CRITICAL
                 )
+                logger.error(f"Issuer agent {issuer_id} has no public key (fail-closed)")
+                raise error
             
             public_key_pem = issuer_agent.metadata["public_key_pem"]
             
@@ -293,10 +325,18 @@ class DelegationTokenManager:
                     backend=default_backend()
                 )
             except Exception as e:
-                logger.error(f"Failed to load public key for agent {issuer_id}: {e}")
-                raise TokenValidationError(
-                    f"Failed to load public key for agent '{issuer_id}': {e}"
-                ) from e
+                # Fail closed: deny if public key cannot be loaded (Requirement 23.3)
+                error_handler = get_error_handler("delegation-token-manager")
+                error = TokenValidationError(f"Failed to load public key for agent '{issuer_id}': {e}")
+                error_handler.handle_error(
+                    error=error,
+                    category=ErrorCategory.DELEGATION,
+                    operation="validate_token",
+                    agent_id=issuer_id,
+                    severity=ErrorSeverity.CRITICAL
+                )
+                logger.error(f"Failed to load public key for agent {issuer_id} (fail-closed): {e}")
+                raise error from e
             
             # Verify and decode token
             try:
@@ -308,11 +348,31 @@ class DelegationTokenManager:
                     options={"verify_exp": True}
                 )
             except jwt.ExpiredSignatureError as e:
-                logger.warning(f"Token expired: {e}")
-                raise TokenExpiredError("Delegation token has expired") from e
+                # Token expired - log and deny (Requirement 23.3)
+                error_handler = get_error_handler("delegation-token-manager")
+                error = TokenExpiredError("Delegation token has expired")
+                error_handler.handle_error(
+                    error=error,
+                    category=ErrorCategory.DELEGATION,
+                    operation="validate_token",
+                    agent_id=issuer_id,
+                    severity=ErrorSeverity.HIGH
+                )
+                logger.warning(f"Token expired (fail-closed): {e}")
+                raise error from e
             except jwt.InvalidTokenError as e:
-                logger.error(f"Invalid token: {e}")
-                raise TokenValidationError(f"Invalid delegation token: {e}") from e
+                # Invalid token - log and deny (Requirement 23.3)
+                error_handler = get_error_handler("delegation-token-manager")
+                error = TokenValidationError(f"Invalid delegation token: {e}")
+                error_handler.handle_error(
+                    error=error,
+                    category=ErrorCategory.DELEGATION,
+                    operation="validate_token",
+                    agent_id=issuer_id,
+                    severity=ErrorSeverity.CRITICAL
+                )
+                logger.error(f"Invalid token (fail-closed): {e}")
+                raise error from e
             
             # Extract and validate required claims
             try:
@@ -329,10 +389,19 @@ class DelegationTokenManager:
                 budget_category = payload.get("budgetCategory")
                 
             except (KeyError, ValueError, TypeError) as e:
-                logger.error(f"Token missing or invalid required claims: {e}")
-                raise TokenValidationError(
-                    f"Token missing or invalid required claims: {e}"
-                ) from e
+                # Missing or invalid claims - fail closed (Requirement 23.3)
+                error_handler = get_error_handler("delegation-token-manager")
+                error = TokenValidationError(f"Token missing or invalid required claims: {e}")
+                error_handler.handle_error(
+                    error=error,
+                    category=ErrorCategory.DELEGATION,
+                    operation="validate_token",
+                    agent_id=issuer_id,
+                    metadata={"payload_keys": list(payload.keys())},
+                    severity=ErrorSeverity.CRITICAL
+                )
+                logger.error(f"Token missing or invalid required claims (fail-closed): {e}")
+                raise error from e
             
             # Create claims object
             claims = DelegationTokenClaims(

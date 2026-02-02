@@ -30,6 +30,13 @@ from caracal.gateway.replay_protection import ReplayProtection, ReplayCheckResul
 from caracal.gateway.cache import PolicyCache, PolicyCacheConfig, CachedPolicy
 from caracal.core.policy import PolicyEvaluator, PolicyDecision
 from caracal.core.metering import MeteringCollector
+from caracal.core.error_handling import (
+    get_error_handler,
+    handle_error_with_denial,
+    ErrorCategory,
+    ErrorSeverity,
+    ErrorContext
+)
 from caracal.exceptions import (
     BudgetExceededError,
     PolicyEvaluationError,
@@ -337,8 +344,26 @@ class GatewayProxy:
                         reason=auth_result.error or "unknown"
                     )
                 
+                # Handle authentication failure with fail-closed semantics
+                error_handler = get_error_handler("gateway-proxy")
+                auth_error = Exception(auth_result.error or "Authentication failed")
+                context = error_handler.handle_error(
+                    error=auth_error,
+                    category=ErrorCategory.AUTHENTICATION,
+                    operation="authenticate_agent",
+                    request_id=request.headers.get("X-Request-ID"),
+                    metadata={
+                        "auth_method": auth_result.method.value,
+                        "path": path,
+                        "method": request.method
+                    },
+                    severity=ErrorSeverity.CRITICAL
+                )
+                
+                error_response = error_handler.create_error_response(context, include_details=False)
+                
                 logger.warning(
-                    f"Authentication failed: {auth_result.error}, "
+                    f"Authentication failed (fail-closed): {auth_result.error}, "
                     f"method={auth_result.method}"
                 )
                 
@@ -354,11 +379,7 @@ class GatewayProxy:
                 
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={
-                        "error": "authentication_failed",
-                        "message": auth_result.error,
-                        "method": auth_result.method.value
-                    }
+                    content=error_response.to_dict()
                 )
             
             agent = auth_result.agent_identity
@@ -378,8 +399,27 @@ class GatewayProxy:
                     if metrics:
                         metrics.record_replay_block(reason=replay_result.reason or "unknown")
                     
+                    # Handle replay attack with fail-closed semantics
+                    error_handler = get_error_handler("gateway-proxy")
+                    replay_error = Exception(replay_result.reason or "Replay attack detected")
+                    context = error_handler.handle_error(
+                        error=replay_error,
+                        category=ErrorCategory.AUTHORIZATION,
+                        operation="check_replay",
+                        agent_id=str(agent.agent_id),
+                        request_id=request.headers.get("X-Request-ID"),
+                        metadata={
+                            "agent_name": agent.name,
+                            "path": path,
+                            "method": request.method
+                        },
+                        severity=ErrorSeverity.CRITICAL
+                    )
+                    
+                    error_response = error_handler.create_error_response(context, include_details=False)
+                    
                     logger.warning(
-                        f"Replay attack blocked for agent {agent.agent_id}: {replay_result.reason}"
+                        f"Replay attack blocked (fail-closed) for agent {agent.agent_id}: {replay_result.reason}"
                     )
                     
                     # Record request metric
@@ -394,10 +434,7 @@ class GatewayProxy:
                     
                     return JSONResponse(
                         status_code=status.HTTP_403_FORBIDDEN,
-                        content={
-                            "error": "replay_detected",
-                            "message": replay_result.reason
-                        }
+                        content=error_response.to_dict()
                     )
             
             # 3. Evaluate budget policy
@@ -448,6 +485,23 @@ class GatewayProxy:
                 
             except PolicyEvaluationError as e:
                 # Policy service unavailable - try degraded mode with cache
+                # Handle with fail-closed semantics
+                error_handler = get_error_handler("gateway-proxy")
+                context = error_handler.handle_error(
+                    error=e,
+                    category=ErrorCategory.POLICY_EVALUATION,
+                    operation="check_budget",
+                    agent_id=str(agent.agent_id),
+                    request_id=request.headers.get("X-Request-ID"),
+                    metadata={
+                        "agent_name": agent.name,
+                        "estimated_cost": str(estimated_cost) if estimated_cost else None,
+                        "path": path,
+                        "method": request.method
+                    },
+                    severity=ErrorSeverity.HIGH
+                )
+                
                 logger.warning(
                     f"Policy evaluation failed for agent {agent.agent_id}: {e}, "
                     f"attempting degraded mode with cache"
@@ -503,9 +557,11 @@ class GatewayProxy:
                             )
                     else:
                         # No cached policy available - fail closed
+                        error_response = error_handler.create_error_response(context, include_details=False)
+                        
                         logger.error(
                             f"Policy evaluation failed and no cached policy available for agent {agent.agent_id}, "
-                            f"failing closed"
+                            f"failing closed (Requirement 23.3)"
                         )
                         
                         # Record request metric
@@ -520,16 +576,15 @@ class GatewayProxy:
                         
                         return JSONResponse(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            content={
-                                "error": "policy_service_unavailable",
-                                "message": "Policy service unavailable and no cached policy available (fail-closed)"
-                            }
+                            content=error_response.to_dict()
                         )
                 else:
                     # Policy cache not enabled - fail closed
+                    error_response = error_handler.create_error_response(context, include_details=False)
+                    
                     logger.error(
                         f"Policy evaluation failed for agent {agent.agent_id} and policy cache not enabled, "
-                        f"failing closed"
+                        f"failing closed (Requirement 23.3)"
                     )
                     
                     # Record request metric
@@ -544,10 +599,7 @@ class GatewayProxy:
                     
                     return JSONResponse(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        content={
-                            "error": "policy_service_unavailable",
-                            "message": "Policy service unavailable and cache not enabled (fail-closed)"
-                        }
+                        content=error_response.to_dict()
                     )
             
             # Return 403 on budget denial (Requirement 1.5)
@@ -730,7 +782,27 @@ class GatewayProxy:
             )
             
         except Exception as e:
-            logger.error(f"Unexpected error handling request: {e}", exc_info=True)
+            # Catch-all for unexpected errors - fail closed
+            error_handler = get_error_handler("gateway-proxy")
+            context = error_handler.handle_error(
+                error=e,
+                category=ErrorCategory.UNKNOWN,
+                operation="handle_request",
+                agent_id=None,  # May not have authenticated yet
+                request_id=request.headers.get("X-Request-ID"),
+                metadata={
+                    "path": path,
+                    "method": request.method
+                },
+                severity=ErrorSeverity.CRITICAL
+            )
+            
+            error_response = error_handler.create_error_response(context, include_details=False)
+            
+            logger.error(
+                f"Unexpected error handling request (fail-closed): {e}",
+                exc_info=True
+            )
             
             # Record request metric
             if metrics:
@@ -744,10 +816,7 @@ class GatewayProxy:
             
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={
-                    "error": "internal_server_error",
-                    "message": "An unexpected error occurred"
-                }
+                content=error_response.to_dict()
             )
         finally:
             # Decrement in-flight requests
@@ -843,12 +912,31 @@ class GatewayProxy:
                 )
                 
         except Exception as e:
-            logger.error(f"Authentication error: {e}", exc_info=True)
+            # Fail closed: deny on authentication error (Requirement 23.3)
+            error_handler = get_error_handler("gateway-proxy")
+            error_handler.handle_error(
+                error=e,
+                category=ErrorCategory.AUTHENTICATION,
+                operation="authenticate_agent",
+                request_id=request.headers.get("X-Request-ID"),
+                metadata={
+                    "auth_mode": self.config.auth_mode,
+                    "path": request.url.path,
+                    "method": request.method
+                },
+                severity=ErrorSeverity.CRITICAL
+            )
+            
+            logger.error(
+                f"Authentication error (fail-closed): {e}",
+                exc_info=True
+            )
+            
             return AuthenticationResult(
                 success=False,
                 agent_identity=None,
                 method=AuthenticationMethod(self.config.auth_mode),
-                error=f"Authentication error: {e}"
+                error=f"Authentication error (fail-closed): {type(e).__name__}"
             )
     
     async def check_replay(self, request: Request) -> ReplayCheckResult:
@@ -888,11 +976,28 @@ class GatewayProxy:
             )
             
         except Exception as e:
-            logger.error(f"Replay check error: {e}", exc_info=True)
-            # Fail closed: deny on error
+            # Fail closed: deny on error (Requirement 23.3)
+            error_handler = get_error_handler("gateway-proxy")
+            error_handler.handle_error(
+                error=e,
+                category=ErrorCategory.AUTHORIZATION,
+                operation="check_replay",
+                request_id=request.headers.get("X-Request-ID"),
+                metadata={
+                    "path": request.url.path,
+                    "method": request.method
+                },
+                severity=ErrorSeverity.HIGH
+            )
+            
+            logger.error(
+                f"Replay check error (fail-closed): {e}",
+                exc_info=True
+            )
+            
             return ReplayCheckResult(
                 allowed=False,
-                reason=f"Replay check error: {e}"
+                reason=f"Replay check error (fail-closed): {type(e).__name__}"
             )
     
     async def forward_request(self, request: Request, target_url: str) -> httpx.Response:

@@ -14,6 +14,12 @@ from uuid import UUID
 from ase.protocol import MeteringEvent
 from caracal.core.metering import MeteringCollector
 from caracal.core.policy import PolicyEvaluator
+from caracal.core.error_handling import (
+    get_error_handler,
+    handle_error_with_denial,
+    ErrorCategory,
+    ErrorSeverity
+)
 from caracal.exceptions import BudgetExceededError, CaracalError
 from caracal.logging_config import get_logger
 from caracal.mcp.cost_calculator import MCPCostCalculator
@@ -215,17 +221,34 @@ class MCPAdapter:
             )
             
         except BudgetExceededError:
-            # Re-raise budget errors
+            # Re-raise budget errors (already logged by policy evaluator)
             raise
         except Exception as e:
+            # Fail closed: deny on error (Requirement 23.3)
+            error_handler = get_error_handler("mcp-adapter")
+            context = error_handler.handle_error(
+                error=e,
+                category=ErrorCategory.UNKNOWN,
+                operation="intercept_tool_call",
+                agent_id=mcp_context.agent_id,
+                metadata={
+                    "tool_name": tool_name,
+                    "tool_args": tool_args
+                },
+                severity=ErrorSeverity.HIGH
+            )
+            
+            error_response = error_handler.create_error_response(context, include_details=False)
+            
             logger.error(
-                f"Failed to intercept MCP tool call '{tool_name}' for agent {mcp_context.agent_id}: {e}",
+                f"Failed to intercept MCP tool call '{tool_name}' for agent {mcp_context.agent_id} (fail-closed): {e}",
                 exc_info=True
             )
+            
             return MCPResult(
                 success=False,
                 result=None,
-                error=f"MCP tool call failed: {e}"
+                error=error_response.message
             )
 
     async def intercept_resource_read(
@@ -342,17 +365,33 @@ class MCPAdapter:
             )
             
         except BudgetExceededError:
-            # Re-raise budget errors
+            # Re-raise budget errors (already logged by policy evaluator)
             raise
         except Exception as e:
+            # Fail closed: deny on error (Requirement 23.3)
+            error_handler = get_error_handler("mcp-adapter")
+            context = error_handler.handle_error(
+                error=e,
+                category=ErrorCategory.UNKNOWN,
+                operation="intercept_resource_read",
+                agent_id=mcp_context.agent_id,
+                metadata={
+                    "resource_uri": resource_uri
+                },
+                severity=ErrorSeverity.HIGH
+            )
+            
+            error_response = error_handler.create_error_response(context, include_details=False)
+            
             logger.error(
-                f"Failed to intercept MCP resource read '{resource_uri}' for agent {mcp_context.agent_id}: {e}",
+                f"Failed to intercept MCP resource read '{resource_uri}' for agent {mcp_context.agent_id} (fail-closed): {e}",
                 exc_info=True
             )
+            
             return MCPResult(
                 success=False,
                 result=None,
-                error=f"MCP resource read failed: {e}"
+                error=error_response.message
             )
 
     def _extract_agent_id(self, mcp_context: MCPContext) -> str:
@@ -366,7 +405,7 @@ class MCPAdapter:
             Agent ID as string
             
         Raises:
-            CaracalError: If agent ID not found in context
+            CaracalError: If agent ID not found in context (fail-closed)
         """
         agent_id = mcp_context.agent_id
         
@@ -375,8 +414,19 @@ class MCPAdapter:
             agent_id = mcp_context.get("caracal_agent_id")
             
         if not agent_id:
-            logger.error("Agent ID not found in MCP context")
-            raise CaracalError("Agent ID not found in MCP context")
+            # Fail closed: deny operation if agent ID cannot be determined (Requirement 23.3)
+            error_handler = get_error_handler("mcp-adapter")
+            error = CaracalError("Agent ID not found in MCP context")
+            error_handler.handle_error(
+                error=error,
+                category=ErrorCategory.VALIDATION,
+                operation="_extract_agent_id",
+                metadata={"mcp_context_metadata": mcp_context.metadata},
+                severity=ErrorSeverity.CRITICAL
+            )
+            
+            logger.error("Agent ID not found in MCP context (fail-closed)")
+            raise error
         
         return agent_id
 
