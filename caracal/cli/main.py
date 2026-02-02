@@ -79,10 +79,12 @@ def cli(ctx: CLIContext, config: Optional[Path], log_level: str, verbose: bool):
         
         # Set up logging with configuration
         log_file = Path(ctx.config.logging.file) if ctx.config.logging.file else None
+        # Determine if JSON format should be used (default to False for CLI)
+        json_format = ctx.config.logging.format == "json" if hasattr(ctx.config.logging, 'format') else False
         setup_logging(
             level=effective_log_level,
             log_file=log_file,
-            log_format=ctx.config.logging.format,
+            json_format=json_format,
         )
         
         if verbose:
@@ -163,15 +165,16 @@ backup.add_command(backup_list, name='list')
 
 @cli.group()
 def delegation():
-    """Manage delegation tokens."""
+    """Manage delegation tokens and relationships."""
     pass
 
 
 # Import and register delegation commands
-from caracal.cli.delegation import generate, list_tokens, validate
+from caracal.cli.delegation import generate, list_delegations, validate, revoke
 delegation.add_command(generate)
-delegation.add_command(list_tokens, name='list')
+delegation.add_command(list_delegations, name='list')
 delegation.add_command(validate)
+delegation.add_command(revoke)
 
 
 @cli.group(name='mcp-service')

@@ -47,17 +47,44 @@ def get_agent_registry(config) -> AgentRegistry:
     help='Owner identifier (email or username)',
 )
 @click.option(
+    '--parent-id',
+    '-p',
+    default=None,
+    help='Parent agent ID for hierarchical relationships',
+)
+@click.option(
+    '--delegated-budget',
+    '-b',
+    type=float,
+    default=None,
+    help='Delegated budget amount from parent (requires --parent-id)',
+)
+@click.option(
+    '--currency',
+    '-c',
+    default='USD',
+    help='Currency code for delegated budget (default: USD)',
+)
+@click.option(
+    '--time-window',
+    '-w',
+    default='daily',
+    help='Time window for delegated budget (default: daily)',
+)
+@click.option(
     '--metadata',
     '-m',
     multiple=True,
     help='Metadata key=value pairs (can be specified multiple times)',
 )
 @click.pass_context
-def register(ctx, name: str, owner: str, metadata: tuple):
+def register(ctx, name: str, owner: str, parent_id: str, delegated_budget: float, 
+             currency: str, time_window: str, metadata: tuple):
     """
     Register a new AI agent with a unique identity.
     
     Creates a new agent with a globally unique ID and stores it in the registry.
+    Optionally creates a child agent with a parent relationship and delegated budget.
     
     Examples:
     
@@ -65,10 +92,22 @@ def register(ctx, name: str, owner: str, metadata: tuple):
         
         caracal agent register -n research-bot -o researcher@university.edu \\
             -m department=AI -m project=LLM
+        
+        caracal agent register -n child-agent -o user@example.com \\
+            --parent-id 550e8400-e29b-41d4-a716-446655440000 \\
+            --delegated-budget 50.00
     """
     try:
         # Get CLI context
         cli_ctx = ctx.obj
+        
+        # Validate delegated budget requires parent ID
+        if delegated_budget is not None and parent_id is None:
+            click.echo(
+                "Error: --delegated-budget requires --parent-id to be specified",
+                err=True
+            )
+            sys.exit(1)
         
         # Parse metadata
         metadata_dict = {}
@@ -86,11 +125,12 @@ def register(ctx, name: str, owner: str, metadata: tuple):
         # Create agent registry
         registry = get_agent_registry(cli_ctx.config)
         
-        # Register agent
+        # Register agent with optional parent
         agent = registry.register_agent(
             name=name,
             owner=owner,
-            metadata=metadata_dict
+            metadata=metadata_dict,
+            parent_agent_id=parent_id
         )
         
         # Display success message
@@ -101,10 +141,50 @@ def register(ctx, name: str, owner: str, metadata: tuple):
         click.echo(f"Owner:       {agent.owner}")
         click.echo(f"Created:     {agent.created_at}")
         
+        if agent.parent_agent_id:
+            click.echo(f"Parent ID:   {agent.parent_agent_id}")
+        
         if agent.metadata:
-            click.echo("Metadata:")
-            for key, value in agent.metadata.items():
-                click.echo(f"  {key}: {value}")
+            # Filter out keys for display (don't show private keys)
+            display_metadata = {
+                k: v for k, v in agent.metadata.items()
+                if k not in ['private_key_pem', 'public_key_pem', 'delegation_tokens']
+            }
+            if display_metadata:
+                click.echo("Metadata:")
+                for key, value in display_metadata.items():
+                    click.echo(f"  {key}: {value}")
+        
+        # Create delegated budget policy if requested
+        if delegated_budget is not None:
+            from pathlib import Path
+            from decimal import Decimal
+            from caracal.core.policy import PolicyStore
+            
+            # Create policy store
+            policy_path = Path(cli_ctx.config.storage.policy_store).expanduser()
+            backup_count = cli_ctx.config.storage.backup_count
+            policy_store = PolicyStore(
+                str(policy_path),
+                agent_registry=registry,
+                backup_count=backup_count
+            )
+            
+            # Create delegated policy
+            policy = policy_store.create_policy(
+                agent_id=agent.agent_id,
+                limit_amount=Decimal(str(delegated_budget)),
+                time_window=time_window,
+                currency=currency,
+                delegated_from_agent_id=parent_id
+            )
+            
+            click.echo()
+            click.echo("✓ Delegated budget policy created!")
+            click.echo(f"Policy ID:   {policy.policy_id}")
+            click.echo(f"Limit:       {delegated_budget} {currency}")
+            click.echo(f"Time Window: {time_window}")
+            click.echo(f"Delegated From: {parent_id}")
         
     except DuplicateAgentNameError as e:
         click.echo(f"Error: {e}", err=True)
