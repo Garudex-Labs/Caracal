@@ -197,21 +197,29 @@ class BaseKafkaConsumer(ABC):
             on_revoke=self._on_partitions_revoked
         )
         
-        # Initialize DLQ producer (for sending failed messages)
-        from caracal.kafka.producer import KafkaEventProducer, KafkaConfig, ProducerConfig
+        # Initialize DLQ producer (simple producer for DLQ messages)
+        from confluent_kafka import Producer
         
-        dlq_kafka_config = KafkaConfig(
-            brokers=self.brokers,
-            security_protocol=self.security_protocol,
-            sasl_mechanism=self.sasl_mechanism,
-            sasl_username=self.sasl_username,
-            sasl_password=self.sasl_password,
-            ssl_ca_location=self.ssl_ca_location,
-            ssl_cert_location=self.ssl_cert_location,
-            ssl_key_location=self.ssl_key_location,
-            producer_config=ProducerConfig()
-        )
-        self._dlq_producer = KafkaEventProducer(dlq_kafka_config)
+        dlq_producer_conf = {
+            'bootstrap.servers': ','.join(self.brokers),
+            'security.protocol': self.security_protocol,
+        }
+        
+        if self.sasl_mechanism:
+            dlq_producer_conf['sasl.mechanism'] = self.sasl_mechanism
+            if self.sasl_username:
+                dlq_producer_conf['sasl.username'] = self.sasl_username
+            if self.sasl_password:
+                dlq_producer_conf['sasl.password'] = self.sasl_password
+        
+        if self.ssl_ca_location:
+            dlq_producer_conf['ssl.ca.location'] = self.ssl_ca_location
+        if self.ssl_cert_location:
+            dlq_producer_conf['ssl.certificate.location'] = self.ssl_cert_location
+        if self.ssl_key_location:
+            dlq_producer_conf['ssl.key.location'] = self.ssl_key_location
+        
+        self._dlq_producer = Producer(dlq_producer_conf)
         
         self._initialized = True
         logger.info(f"{self.__class__.__name__} initialized successfully")
@@ -480,40 +488,46 @@ class BaseKafkaConsumer(ABC):
             # Serialize to JSON
             dlq_value = json.dumps(dlq_event).encode('utf-8')
             
-            # Publish to DLQ topic using low-level producer
-            # (We can't use KafkaEventProducer here as it's designed for specific event types)
-            from confluent_kafka import Producer
-            
-            producer_conf = {
-                'bootstrap.servers': ','.join(self.brokers),
-                'security.protocol': self.security_protocol,
-            }
-            
-            if self.sasl_mechanism:
-                producer_conf['sasl.mechanism'] = self.sasl_mechanism
-                if self.sasl_username:
-                    producer_conf['sasl.username'] = self.sasl_username
-                if self.sasl_password:
-                    producer_conf['sasl.password'] = self.sasl_password
-            
-            if self.ssl_ca_location:
-                producer_conf['ssl.ca.location'] = self.ssl_ca_location
-            if self.ssl_cert_location:
-                producer_conf['ssl.certificate.location'] = self.ssl_cert_location
-            if self.ssl_key_location:
-                producer_conf['ssl.key.location'] = self.ssl_key_location
-            
-            producer = Producer(producer_conf)
-            
-            # Produce to DLQ
-            producer.produce(
-                topic=self.DLQ_TOPIC,
-                key=message.key,
-                value=dlq_value
-            )
-            
-            # Flush to ensure delivery
-            producer.flush(timeout=10.0)
+            # Produce to DLQ using the initialized producer
+            if self._dlq_producer:
+                self._dlq_producer.produce(
+                    topic=self.DLQ_TOPIC,
+                    key=message.key,
+                    value=dlq_value
+                )
+                
+                # Flush to ensure delivery
+                self._dlq_producer.flush(timeout=10.0)
+            else:
+                # Fallback: create a temporary producer if not initialized
+                from confluent_kafka import Producer
+                
+                producer_conf = {
+                    'bootstrap.servers': ','.join(self.brokers),
+                    'security.protocol': self.security_protocol,
+                }
+                
+                if self.sasl_mechanism:
+                    producer_conf['sasl.mechanism'] = self.sasl_mechanism
+                    if self.sasl_username:
+                        producer_conf['sasl.username'] = self.sasl_username
+                    if self.sasl_password:
+                        producer_conf['sasl.password'] = self.sasl_password
+                
+                if self.ssl_ca_location:
+                    producer_conf['ssl.ca.location'] = self.ssl_ca_location
+                if self.ssl_cert_location:
+                    producer_conf['ssl.certificate.location'] = self.ssl_cert_location
+                if self.ssl_key_location:
+                    producer_conf['ssl.key.location'] = self.ssl_key_location
+                
+                producer = Producer(producer_conf)
+                producer.produce(
+                    topic=self.DLQ_TOPIC,
+                    key=message.key,
+                    value=dlq_value
+                )
+                producer.flush(timeout=10.0)
             
             logger.info(
                 f"Message sent to DLQ: dlq_id={dlq_event['dlq_id']}, "
@@ -549,7 +563,8 @@ class BaseKafkaConsumer(ABC):
             self._consumer = None
         
         if self._dlq_producer:
-            await self._dlq_producer.close()
+            # Flush and close DLQ producer
+            self._dlq_producer.flush(timeout=10.0)
             self._dlq_producer = None
         
         self._initialized = False
