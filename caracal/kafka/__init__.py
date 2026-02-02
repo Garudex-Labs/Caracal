@@ -20,6 +20,10 @@ from caracal.kafka.consumer import (
     KafkaMessage,
 )
 
+from caracal.kafka.ledger_writer import (
+    LedgerWriterConsumer,
+)
+
 __all__ = [
     "KafkaEventProducer",
     "KafkaConfig",
@@ -31,4 +35,6 @@ __all__ = [
     "BaseKafkaConsumer",
     "ConsumerConfig",
     "KafkaMessage",
+    "LedgerWriterConsumer",
 ]
+
