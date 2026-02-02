@@ -329,3 +329,125 @@ class AuditLogManager:
         logger.info(f"Exported {len(logs)} audit logs as SYSLOG")
         
         return syslog_content
+    
+    def archive_old_logs(
+        self,
+        retention_days: int = 2555,  # 7 years (7 * 365 = 2555 days)
+        archive_batch_size: int = 10000,
+    ) -> Dict[str, Any]:
+        """
+        Archive audit logs older than retention period.
+        
+        This method identifies logs older than the retention period and marks them
+        for archival. In a production system, this would:
+        1. Export old logs to cold storage (S3, Glacier, etc.)
+        2. Delete archived logs from the database
+        
+        For now, this returns information about logs that should be archived.
+        
+        Args:
+            retention_days: Number of days to retain logs (default 2555 = 7 years)
+            archive_batch_size: Batch size for archival operations
+            
+        Returns:
+            Dictionary with archival statistics
+            
+        Requirements: 17.6
+        """
+        from datetime import timedelta
+        
+        # Calculate cutoff date
+        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        
+        with self.db_session_factory() as session:
+            # Count logs older than retention period
+            old_logs_count = session.query(AuditLog).filter(
+                AuditLog.event_timestamp < cutoff_date
+            ).count()
+            
+            if old_logs_count == 0:
+                logger.info(
+                    f"No audit logs older than {retention_days} days found for archival"
+                )
+                return {
+                    "status": "no_logs_to_archive",
+                    "cutoff_date": cutoff_date.isoformat(),
+                    "retention_days": retention_days,
+                    "logs_to_archive": 0,
+                }
+            
+            # Get oldest and newest log timestamps for archival
+            oldest_log = session.query(AuditLog).filter(
+                AuditLog.event_timestamp < cutoff_date
+            ).order_by(AuditLog.event_timestamp.asc()).first()
+            
+            newest_log = session.query(AuditLog).filter(
+                AuditLog.event_timestamp < cutoff_date
+            ).order_by(AuditLog.event_timestamp.desc()).first()
+            
+            logger.info(
+                f"Found {old_logs_count} audit logs for archival: "
+                f"cutoff_date={cutoff_date.isoformat()}, "
+                f"oldest={oldest_log.event_timestamp.isoformat() if oldest_log else 'N/A'}, "
+                f"newest={newest_log.event_timestamp.isoformat() if newest_log else 'N/A'}"
+            )
+            
+            return {
+                "status": "logs_identified_for_archival",
+                "cutoff_date": cutoff_date.isoformat(),
+                "retention_days": retention_days,
+                "logs_to_archive": old_logs_count,
+                "oldest_log_timestamp": oldest_log.event_timestamp.isoformat() if oldest_log else None,
+                "newest_log_timestamp": newest_log.event_timestamp.isoformat() if newest_log else None,
+                "recommended_action": (
+                    "Export these logs to cold storage using export_json() or export_csv() "
+                    "with appropriate time range filters, then delete from database."
+                ),
+            }
+    
+    def get_retention_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about audit log retention.
+        
+        Returns:
+            Dictionary with retention statistics
+            
+        Requirements: 17.6
+        """
+        from datetime import timedelta
+        
+        retention_days = 2555  # 7 years
+        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        
+        with self.db_session_factory() as session:
+            # Total logs
+            total_logs = session.query(AuditLog).count()
+            
+            # Logs within retention period
+            active_logs = session.query(AuditLog).filter(
+                AuditLog.event_timestamp >= cutoff_date
+            ).count()
+            
+            # Logs older than retention period
+            archival_logs = session.query(AuditLog).filter(
+                AuditLog.event_timestamp < cutoff_date
+            ).count()
+            
+            # Oldest and newest logs
+            oldest_log = session.query(AuditLog).order_by(
+                AuditLog.event_timestamp.asc()
+            ).first()
+            
+            newest_log = session.query(AuditLog).order_by(
+                AuditLog.event_timestamp.desc()
+            ).first()
+            
+            return {
+                "total_logs": total_logs,
+                "active_logs": active_logs,
+                "archival_logs": archival_logs,
+                "retention_days": retention_days,
+                "cutoff_date": cutoff_date.isoformat(),
+                "oldest_log_timestamp": oldest_log.event_timestamp.isoformat() if oldest_log else None,
+                "newest_log_timestamp": newest_log.event_timestamp.isoformat() if newest_log else None,
+            }
