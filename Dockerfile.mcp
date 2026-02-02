@@ -1,0 +1,287 @@
+# Multi-stage Dockerfile for Caracal MCP Adapter
+# Requirements: 18.1
+#
+# This Dockerfile creates a minimal production image for the MCP Adapter
+# with HTTP API support for MCP request proxying.
+#
+# Build: docker build -f Dockerfile.mcp -t caracal-mcp-adapter:latest .
+# Run:   docker run -p 8080:8080 caracal-mcp-adapter:latest
+
+# Stage 1: Builder - Install dependencies and build wheels
+FROM python:3.10-slim as builder
+
+# Set working directory
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files
+COPY pyproject.toml setup.py MANIFEST.in ./
+COPY README.md LICENSE ./
+
+# Copy source code
+COPY caracal/ ./caracal/
+
+# Install dependencies and build wheel
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip wheel --no-cache-dir --wheel-dir /wheels .
+
+# Stage 2: Runtime - Minimal production image
+FROM python:3.10-slim
+
+# Set metadata
+LABEL maintainer="Caracal Contributors"
+LABEL description="Caracal MCP Adapter - Budget enforcement for Model Context Protocol"
+LABEL version="0.2.0"
+
+# Create non-root user for security
+RUN groupadd -r caracal && useradd -r -g caracal caracal
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy wheels from builder
+COPY --from=builder /wheels /wheels
+
+# Install the application and dependencies from wheels
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir /wheels/*.whl && \
+    rm -rf /wheels
+
+# Create directories for configuration and logs
+RUN mkdir -p /etc/caracal/config /var/log/caracal && \
+    chown -R caracal:caracal /etc/caracal /var/log/caracal
+
+# Copy MCP adapter startup script
+COPY --chown=caracal:caracal <<'EOF' /app/start_mcp_adapter.py
+#!/usr/bin/env python3
+"""
+MCP Adapter startup script for Docker container.
+
+This script initializes and starts the MCP Adapter service with
+configuration from environment variables and mounted volumes.
+"""
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+from caracal.mcp.service import MCPAdapterService, MCPServiceConfig, MCPServerConfig
+from caracal.mcp.adapter import MCPAdapter
+from caracal.mcp.cost_calculator import MCPCostCalculator
+from caracal.core.identity import AgentRegistry
+from caracal.core.policy import PolicyStore, PolicyEvaluator
+from caracal.core.ledger import LedgerWriter, LedgerQuery
+from caracal.core.metering import MeteringCollector
+from caracal.core.pricebook import Pricebook
+from caracal.core.provisional_charges import ProvisionalChargeManager, ProvisionalChargeConfig
+from caracal.db.connection import DatabaseConnectionManager
+from caracal.logging_config import setup_logging
+from caracal.monitoring.metrics import initialize_metrics
+
+
+async def main():
+    """Initialize and start the MCP Adapter."""
+    
+    # Setup logging
+    log_level = os.getenv("LOG_LEVEL", "INFO")
+    setup_logging(log_level=log_level)
+    
+    print("=" * 60)
+    print("Caracal MCP Adapter v0.2.0")
+    print("=" * 60)
+    
+    # Initialize metrics
+    print("\nInitializing metrics...")
+    initialize_metrics()
+    
+    # Database configuration
+    db_host = os.getenv("DB_HOST", "localhost")
+    db_port = int(os.getenv("DB_PORT", "5432"))
+    db_name = os.getenv("DB_NAME", "caracal")
+    db_user = os.getenv("DB_USER", "caracal")
+    db_password = os.getenv("DB_PASSWORD", "")
+    
+    print(f"\nDatabase: {db_user}@{db_host}:{db_port}/{db_name}")
+    
+    # Initialize database connection
+    db_connection_manager = DatabaseConnectionManager(
+        host=db_host,
+        port=db_port,
+        database=db_name,
+        user=db_user,
+        password=db_password,
+        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
+        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "5")),
+        pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    )
+    
+    # Test database connection
+    if not db_connection_manager.health_check():
+        print("ERROR: Database connection failed!")
+        sys.exit(1)
+    
+    print("✓ Database connection successful")
+    
+    # Initialize core components with database session
+    session = db_connection_manager.get_session()
+    
+    agent_registry = AgentRegistry(session)
+    policy_store = PolicyStore(session)
+    ledger_writer = LedgerWriter(session)
+    ledger_query = LedgerQuery(session)
+    pricebook = Pricebook(session)
+    
+    # Initialize provisional charge manager
+    provisional_config = ProvisionalChargeConfig(
+        default_expiration_seconds=int(os.getenv("PROVISIONAL_CHARGE_EXPIRATION", "300")),
+        timeout_minutes=int(os.getenv("PROVISIONAL_CHARGE_MAX_TIMEOUT", "60")),
+        cleanup_interval_seconds=int(os.getenv("PROVISIONAL_CHARGE_CLEANUP_INTERVAL", "60")),
+        cleanup_batch_size=int(os.getenv("PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE", "1000"))
+    )
+    provisional_charge_manager = ProvisionalChargeManager(session, provisional_config)
+    
+    # Initialize metering collector
+    metering_collector = MeteringCollector(
+        pricebook=pricebook,
+        ledger_writer=ledger_writer,
+        provisional_charge_manager=provisional_charge_manager
+    )
+    
+    # Initialize policy evaluator
+    policy_evaluator = PolicyEvaluator(
+        policy_store=policy_store,
+        ledger_query=ledger_query,
+        provisional_charge_manager=provisional_charge_manager
+    )
+    
+    print("✓ Core components initialized")
+    
+    # Initialize MCP cost calculator
+    cost_calculator = MCPCostCalculator(pricebook=pricebook)
+    
+    # Initialize MCP adapter
+    mcp_adapter = MCPAdapter(
+        policy_evaluator=policy_evaluator,
+        metering_collector=metering_collector,
+        cost_calculator=cost_calculator
+    )
+    
+    print("✓ MCP adapter initialized")
+    
+    # Parse MCP servers from environment
+    # Format: MCP_SERVERS=name1:url1,name2:url2
+    mcp_servers = []
+    mcp_servers_env = os.getenv("MCP_SERVERS", "")
+    
+    if mcp_servers_env:
+        for server_spec in mcp_servers_env.split(","):
+            if ":" in server_spec:
+                name, url = server_spec.split(":", 1)
+                mcp_servers.append(MCPServerConfig(
+                    name=name.strip(),
+                    url=url.strip(),
+                    timeout_seconds=int(os.getenv("MCP_SERVER_TIMEOUT", "30"))
+                ))
+                print(f"  - Configured MCP server: {name.strip()} -> {url.strip()}")
+    
+    if not mcp_servers:
+        print("WARNING: No MCP servers configured. Set MCP_SERVERS environment variable.")
+        print("         Format: MCP_SERVERS=name1:url1,name2:url2")
+    
+    # MCP service configuration
+    listen_address = os.getenv("LISTEN_ADDRESS", "0.0.0.0:8080")
+    
+    mcp_service_config = MCPServiceConfig(
+        listen_address=listen_address,
+        mcp_servers=mcp_servers,
+        request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT", "30")),
+        max_request_size_mb=int(os.getenv("MAX_REQUEST_SIZE_MB", "10")),
+        enable_health_check=True,
+        health_check_path="/health"
+    )
+    
+    # Initialize MCP Adapter Service
+    mcp_service = MCPAdapterService(
+        config=mcp_service_config,
+        mcp_adapter=mcp_adapter,
+        policy_evaluator=policy_evaluator,
+        metering_collector=metering_collector,
+        db_connection_manager=db_connection_manager
+    )
+    
+    print("✓ MCP Adapter Service initialized")
+    print("\nConfiguration:")
+    print(f"  - Listen Address: {listen_address}")
+    print(f"  - MCP Servers: {len(mcp_servers)}")
+    print(f"  - Request Timeout: {mcp_service_config.request_timeout_seconds}s")
+    print(f"  - Max Request Size: {mcp_service_config.max_request_size_mb}MB")
+    
+    print("\nEndpoints:")
+    print(f"  - GET  /health              - Health check")
+    print(f"  - GET  /stats               - Service statistics")
+    print(f"  - POST /mcp/tool/call       - Intercept MCP tool call")
+    print(f"  - POST /mcp/resource/read   - Intercept MCP resource read")
+    
+    print("\n" + "=" * 60)
+    print("Starting MCP Adapter service...")
+    print("=" * 60 + "\n")
+    
+    # Start the service
+    await mcp_service.start()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")
+    except Exception as e:
+        print(f"\nFATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+EOF
+
+# Make startup script executable
+RUN chmod +x /app/start_mcp_adapter.py
+
+# Switch to non-root user
+USER caracal
+
+# Expose port
+# 8080: HTTP API for MCP request proxying (configurable via LISTEN_ADDRESS)
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()" || exit 1
+
+# Set environment variables with defaults
+ENV LOG_LEVEL=INFO \
+    LISTEN_ADDRESS=0.0.0.0:8080 \
+    REQUEST_TIMEOUT=30 \
+    MAX_REQUEST_SIZE_MB=10 \
+    MCP_SERVER_TIMEOUT=30 \
+    DB_HOST=localhost \
+    DB_PORT=5432 \
+    DB_NAME=caracal \
+    DB_USER=caracal \
+    DB_POOL_SIZE=10 \
+    DB_MAX_OVERFLOW=5 \
+    DB_POOL_TIMEOUT=30
+
+# Start the MCP adapter service
+CMD ["python", "/app/start_mcp_adapter.py"]
