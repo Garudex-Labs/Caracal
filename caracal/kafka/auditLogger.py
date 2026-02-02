@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from caracal.kafka.consumer import BaseKafkaConsumer, KafkaMessage
 from caracal.db.models import AuditLog
-from caracal.db.connection import get_session
+from caracal.db.connection import get_connection_manager
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -59,7 +59,7 @@ class AuditLoggerConsumer(BaseKafkaConsumer):
         ssl_ca_location: Optional[str] = None,
         ssl_cert_location: Optional[str] = None,
         ssl_key_location: Optional[str] = None,
-        db_session_factory=None,
+        db_connection_manager=None,
     ):
         """
         Initialize AuditLogger consumer.
@@ -73,7 +73,7 @@ class AuditLoggerConsumer(BaseKafkaConsumer):
             ssl_ca_location: Path to CA certificate
             ssl_cert_location: Path to client certificate
             ssl_key_location: Path to client private key
-            db_session_factory: Database session factory (defaults to get_session)
+            db_connection_manager: Database connection manager (defaults to global instance)
         """
         super().__init__(
             brokers=brokers,
@@ -89,7 +89,7 @@ class AuditLoggerConsumer(BaseKafkaConsumer):
             enable_transactions=True,
         )
         
-        self.db_session_factory = db_session_factory or get_session
+        self.db_connection_manager = db_connection_manager or get_connection_manager()
         
         logger.info(
             f"AuditLoggerConsumer initialized: topics={self.AUDIT_TOPICS}"
@@ -168,9 +168,8 @@ class AuditLoggerConsumer(BaseKafkaConsumer):
             )
             
             # Write to database (append-only)
-            with self.db_session_factory() as session:
+            with self.db_connection_manager.session_scope() as session:
                 session.add(audit_log)
-                session.commit()
             
             logger.debug(
                 f"Audit log entry created: log_id={audit_log.log_id}, "

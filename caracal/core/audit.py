@@ -17,7 +17,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from caracal.db.models import AuditLog
-from caracal.db.connection import get_session
+from caracal.db.connection import get_connection_manager
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -34,14 +34,14 @@ class AuditLogManager:
     Requirements: 17.5, 17.7
     """
     
-    def __init__(self, db_session_factory=None):
+    def __init__(self, db_connection_manager=None):
         """
         Initialize audit log manager.
         
         Args:
-            db_session_factory: Database session factory (defaults to get_session)
+            db_connection_manager: Database connection manager (defaults to global instance)
         """
-        self.db_session_factory = db_session_factory or get_session
+        self.db_connection_manager = db_connection_manager or get_connection_manager()
     
     def query_audit_logs(
         self,
@@ -70,7 +70,7 @@ class AuditLogManager:
             
         Requirements: 17.7
         """
-        with self.db_session_factory() as session:
+        with self.db_connection_manager.session_scope() as session:
             query = session.query(AuditLog)
             
             # Apply filters
@@ -359,7 +359,7 @@ class AuditLogManager:
         # Calculate cutoff date
         cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
         
-        with self.db_session_factory() as session:
+        with self.db_connection_manager.session_scope() as session:
             # Count logs older than retention period
             old_logs_count = session.query(AuditLog).filter(
                 AuditLog.event_timestamp < cutoff_date
@@ -419,7 +419,7 @@ class AuditLogManager:
         retention_days = 2555  # 7 years
         cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
         
-        with self.db_session_factory() as session:
+        with self.db_connection_manager.session_scope() as session:
             # Total logs
             total_logs = session.query(AuditLog).count()
             
