@@ -34,6 +34,7 @@ class VerificationResult:
         stored_root: Merkle root stored in database
         computed_root: Merkle root recomputed from events
         signature_valid: True if signature is valid
+        is_migration_batch: True if batch is from v0.2 backfill
         error_message: Error message if verification failed
     """
     batch_id: UUID
@@ -41,6 +42,7 @@ class VerificationResult:
     stored_root: bytes
     computed_root: bytes
     signature_valid: bool
+    is_migration_batch: bool = False
     error_message: Optional[str] = None
 
 
@@ -106,6 +108,7 @@ class MerkleVerifier:
         3. Recompute Merkle tree from events
         4. Compare recomputed root with stored root
         5. Verify signature on stored root
+        6. Handle migration batches (source='migration') with relaxed timestamp checks
         
         Args:
             batch_id: Batch identifier to verify
@@ -113,7 +116,7 @@ class MerkleVerifier:
         Returns:
             VerificationResult with verification status
         
-        Requirements: 4.3, 4.4
+        Requirements: 4.3, 4.4, 22.1.10, 22.1.11
         """
         logger.info(f"Verifying batch {batch_id}")
         
@@ -132,8 +135,15 @@ class MerkleVerifier:
                     stored_root=b"",
                     computed_root=b"",
                     signature_valid=False,
+                    is_migration_batch=False,
                     error_message=error_msg,
                 )
+            
+            # Check if this is a migration batch
+            is_migration_batch = merkle_root_record.source == "migration"
+            
+            if is_migration_batch:
+                logger.info(f"Batch {batch_id} is a migration batch (v0.2 backfill)")
             
             # Decode stored root and signature from hex
             stored_root = bytes.fromhex(merkle_root_record.merkle_root)
@@ -157,6 +167,7 @@ class MerkleVerifier:
                     stored_root=stored_root,
                     computed_root=b"",
                     signature_valid=False,
+                    is_migration_batch=is_migration_batch,
                     error_message=error_msg,
                 )
             
@@ -173,8 +184,21 @@ class MerkleVerifier:
                     stored_root=stored_root,
                     computed_root=b"",
                     signature_valid=False,
+                    is_migration_batch=is_migration_batch,
                     error_message=error_msg,
                 )
+            
+            # For migration batches, verify timestamp relationship
+            # Migration batches have signature timestamp > event timestamps (retroactive signing)
+            if is_migration_batch:
+                # Check that signature timestamp is after all event timestamps
+                latest_event_timestamp = max(event.timestamp for event in events)
+                if merkle_root_record.created_at < latest_event_timestamp:
+                    logger.warning(
+                        f"Migration batch {batch_id} has signature timestamp "
+                        f"({merkle_root_record.created_at}) before latest event timestamp "
+                        f"({latest_event_timestamp}). This indicates a potential issue."
+                    )
             
             # Compute event hashes
             event_hashes = []
@@ -201,7 +225,13 @@ class MerkleVerifier:
             verified = roots_match and signature_valid
             
             if verified:
-                logger.info(f"Batch {batch_id} verified successfully")
+                if is_migration_batch:
+                    logger.info(
+                        f"Migration batch {batch_id} verified successfully "
+                        f"(Note: Reduced integrity guarantees for pre-v0.3 events)"
+                    )
+                else:
+                    logger.info(f"Batch {batch_id} verified successfully")
             else:
                 error_parts = []
                 if not roots_match:
@@ -220,6 +250,7 @@ class MerkleVerifier:
                 stored_root=stored_root,
                 computed_root=computed_root,
                 signature_valid=signature_valid,
+                is_migration_batch=is_migration_batch,
                 error_message=None if verified else error_msg,
             )
         
@@ -232,6 +263,7 @@ class MerkleVerifier:
                 stored_root=b"",
                 computed_root=b"",
                 signature_valid=False,
+                is_migration_batch=False,
                 error_message=error_msg,
             )
     
@@ -409,3 +441,85 @@ class MerkleVerifier:
         except Exception as e:
             logger.error(f"Failed to verify event inclusion for event {event_id}: {e}", exc_info=True)
             return False
+
+    async def verify_backfill(self) -> VerificationSummary:
+        """
+        Verify integrity of all migration batches (v0.2 backfill).
+        
+        This method specifically verifies batches created during the v0.2 to v0.3
+        migration process. Migration batches have reduced integrity guarantees
+        because they were signed retroactively.
+        
+        Steps:
+        1. Query all Merkle root records with source='migration'
+        2. Verify each migration batch
+        3. Aggregate results into a summary
+        4. Document reduced integrity guarantees
+        
+        Returns:
+            VerificationSummary with aggregated results for migration batches
+        
+        Requirements: 22.1.10, 22.1.12
+        """
+        logger.info("Verifying all migration batches (v0.2 backfill)")
+        
+        try:
+            # Query all migration batches
+            stmt = select(MerkleRoot).where(
+                MerkleRoot.source == "migration"
+            ).order_by(MerkleRoot.created_at)
+            
+            result = await self.db_session.execute(stmt)
+            merkle_roots = result.scalars().all()
+            
+            if not merkle_roots:
+                logger.info("No migration batches found")
+                return VerificationSummary(
+                    total_batches=0,
+                    verified_batches=0,
+                    failed_batches=0,
+                    verification_errors=[],
+                )
+            
+            logger.info(f"Found {len(merkle_roots)} migration batches to verify")
+            logger.warning(
+                "Note: Migration batches have reduced integrity guarantees. "
+                "Signatures were created retroactively during v0.2 to v0.3 migration. "
+                "This means the signature timestamp is after the event timestamps, "
+                "which is expected for migration batches."
+            )
+            
+            # Verify each batch
+            verification_results = []
+            verified_count = 0
+            failed_count = 0
+            
+            for merkle_root in merkle_roots:
+                result = await self.verify_batch(merkle_root.batch_id)
+                verification_results.append(result)
+                
+                if result.verified:
+                    verified_count += 1
+                else:
+                    failed_count += 1
+            
+            # Collect failed verifications
+            verification_errors = [r for r in verification_results if not r.verified]
+            
+            summary = VerificationSummary(
+                total_batches=len(merkle_roots),
+                verified_batches=verified_count,
+                failed_batches=failed_count,
+                verification_errors=verification_errors,
+            )
+            
+            logger.info(
+                f"Migration batch verification complete: {verified_count}/{len(merkle_roots)} batches verified, "
+                f"{failed_count} failed"
+            )
+            
+            return summary
+        
+        except Exception as e:
+            logger.error(f"Failed to verify migration batches: {e}", exc_info=True)
+            raise
