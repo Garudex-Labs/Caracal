@@ -75,18 +75,23 @@ class LedgerWriter:
     - File locking for concurrent safety
     - Atomic write operations
     - Rolling backups
+    
+    v0.3: Integrated with Redis cache to update spending on writes.
+    Requirements: 20.3, 20.4
     """
 
-    def __init__(self, ledger_path: str, backup_count: int = 3):
+    def __init__(self, ledger_path: str, backup_count: int = 3, redis_cache=None):
         """
         Initialize LedgerWriter.
         
         Args:
             ledger_path: Path to the ledger file (JSON Lines format)
             backup_count: Number of rolling backups to maintain (default: 3)
+            redis_cache: Optional RedisSpendingCache for cache updates (v0.3)
         """
         self.ledger_path = Path(ledger_path)
         self.backup_count = backup_count
+        self.redis_cache = redis_cache
         self._next_event_id = 1
         self._backup_created = False
         
@@ -101,6 +106,11 @@ class LedgerWriter:
             # Load existing ledger to determine next event ID
             self._initialize_event_id()
             logger.info(f"Loaded existing ledger from {self.ledger_path}, next event ID: {self._next_event_id}")
+        
+        if redis_cache:
+            logger.info("LedgerWriter initialized with Redis cache integration")
+        else:
+            logger.info("LedgerWriter initialized without Redis cache (v0.1/v0.2 mode)")
 
     def append_event(
         self,
@@ -180,6 +190,23 @@ class LedgerWriter:
         # Write to ledger with file locking
         try:
             self._atomic_append(event)
+            
+            # Update Redis cache if available (v0.3)
+            if self.redis_cache:
+                try:
+                    self.redis_cache.update_spending(
+                        agent_id=agent_id,
+                        cost=cost,
+                        timestamp=timestamp,
+                        event_id=str(event.event_id)
+                    )
+                    logger.debug(f"Updated Redis cache for agent {agent_id}, cost={cost}")
+                except Exception as e:
+                    # Cache update failures should not fail the write
+                    logger.warning(
+                        f"Failed to update Redis cache for event {event.event_id}: {e}"
+                    )
+            
             logger.info(
                 f"Ledger write: event_id={event.event_id}, agent_id={agent_id}, "
                 f"resource={resource_type}, cost={cost} {currency}, "
@@ -489,6 +516,89 @@ class LedgerQuery:
         """
         Calculate total spending for an agent in a time window.
         
+        v0.3: Uses Redis cache for recent spending (last 24 hours), falls back to
+        PostgreSQL/file for older data.
+        
+        Args:
+            agent_id: Agent identifier
+            start_time: Start of time window (inclusive)
+            end_time: End of time window (inclusive)
+            
+        Returns:
+            Total spending as Decimal
+            
+        Raises:
+            LedgerReadError: If ledger file cannot be read
+            
+        Requirements: 20.3, 20.4
+        """
+        # Check if we can use Redis cache for recent data
+        if self.redis_cache:
+            now = datetime.utcnow()
+            cache_cutoff = now - timedelta(hours=24)
+            
+            # If entire query is within cache window (last 24 hours)
+            if start_time >= cache_cutoff:
+                try:
+                    cached_spending = self.redis_cache.get_spending_in_range(
+                        agent_id,
+                        start_time,
+                        end_time
+                    )
+                    logger.debug(
+                        f"Cache hit: spending for agent {agent_id} from {start_time} "
+                        f"to {end_time}: {cached_spending}"
+                    )
+                    return cached_spending
+                except Exception as e:
+                    logger.warning(
+                        f"Redis cache query failed, falling back to database: {e}"
+                    )
+                    # Fall through to database query
+            
+            # If query spans cache and database
+            elif end_time >= cache_cutoff:
+                try:
+                    # Get recent spending from cache
+                    cached_spending = self.redis_cache.get_spending_in_range(
+                        agent_id,
+                        cache_cutoff,
+                        end_time
+                    )
+                    
+                    # Get older spending from database
+                    db_spending = self._sum_spending_from_db(
+                        agent_id,
+                        start_time,
+                        cache_cutoff
+                    )
+                    
+                    total = cached_spending + db_spending
+                    logger.debug(
+                        f"Hybrid query: agent {agent_id} from {start_time} to {end_time}: "
+                        f"cache={cached_spending}, db={db_spending}, total={total}"
+                    )
+                    return total
+                except Exception as e:
+                    logger.warning(
+                        f"Hybrid cache/db query failed, falling back to database only: {e}"
+                    )
+                    # Fall through to database query
+        
+        # Fall back to database query (no cache or query is for old data)
+        return self._sum_spending_from_db(agent_id, start_time, end_time)
+    
+    def _sum_spending_from_db(
+        self,
+        agent_id: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> Decimal:
+        """
+        Calculate total spending from database (file or PostgreSQL).
+        
+        This is the original v0.1/v0.2 implementation that reads from the ledger file.
+        
         Args:
             agent_id: Agent identifier
             start_time: Start of time window (inclusive)
@@ -520,7 +630,8 @@ class LedgerQuery:
                 continue
         
         logger.debug(
-            f"Total spending for agent {agent_id} from {start_time} to {end_time}: {total}"
+            f"Database query: spending for agent {agent_id} from {start_time} "
+            f"to {end_time}: {total}"
         )
         
         return total
