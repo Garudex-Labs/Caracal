@@ -342,7 +342,7 @@ class CompatibilityConfig:
     
     mode: str = "v0.3"  # "v0.2" or "v0.3"
     enable_kafka: bool = True  # If False, use direct PostgreSQL writes (v0.2 mode)
-    enable_merkle: bool = True  # If False, skip Merkle tree computation (v0.2 mode)
+    enable_merkle: bool = False  # If False, skip Merkle tree computation (v0.2 mode)
     enable_redis: bool = True  # If False, skip Redis caching (v0.2 mode)
     warn_on_v02_mode: bool = True  # Log warnings when running in v0.2 compatibility mode
 
