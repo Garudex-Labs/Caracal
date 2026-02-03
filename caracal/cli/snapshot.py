@@ -15,13 +15,41 @@ import click
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from caracal.db.connection import get_database_url
-from caracal.db.models import Base
+from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
 from caracal.logging_config import get_logger
 from caracal.merkle.snapshot import SnapshotManager
 from caracal.merkle.recovery import RecoveryManager
 
 logger = get_logger(__name__)
+
+
+def get_db_session(config):
+    """
+    Create a database session from configuration.
+    
+    Args:
+        config: Configuration object with database settings
+        
+    Returns:
+        SQLAlchemy session
+    """
+    # Create database config from settings
+    db_config = DatabaseConfig(
+        host=config.database.host,
+        port=config.database.port,
+        database=config.database.database,
+        user=config.database.user,
+        password=config.database.password,
+        pool_size=config.database.pool_size,
+        max_overflow=config.database.max_overflow,
+        pool_timeout=config.database.pool_timeout,
+    )
+    
+    # Create connection manager
+    conn_manager = DatabaseConnectionManager(db_config)
+    
+    # Get session
+    return conn_manager.get_session()
 
 
 @click.group(name='snapshot')
@@ -52,9 +80,7 @@ def create_snapshot(ctx):
         click.echo("Creating ledger snapshot...")
         
         # Create database session
-        engine = create_engine(get_database_url(ctx.config))
-        Session = sessionmaker(bind=engine)
-        session = Session()
+        session = get_db_session(ctx.config)
         
         try:
             # Create snapshot manager
@@ -104,9 +130,7 @@ def list_snapshots(ctx, limit: int):
     """
     try:
         # Create database session
-        engine = create_engine(get_database_url(ctx.config))
-        Session = sessionmaker(bind=engine)
-        session = Session()
+        session = get_db_session(ctx.config)
         
         try:
             # Create snapshot manager
@@ -177,9 +201,7 @@ def restore_snapshot(ctx, snapshot_id: str, dry_run: bool):
             click.echo("DRY RUN: No changes will be made\n")
         
         # Create database session
-        engine = create_engine(get_database_url(ctx.config))
-        Session = sessionmaker(bind=engine)
-        session = Session()
+        session = get_db_session(ctx.config)
         
         try:
             # Create snapshot manager
@@ -258,9 +280,7 @@ def snapshot_status(ctx):
     """
     try:
         # Create database session
-        engine = create_engine(get_database_url(ctx.config))
-        Session = sessionmaker(bind=engine)
-        session = Session()
+        session = get_db_session(ctx.config)
         
         try:
             # Create snapshot manager
@@ -341,9 +361,7 @@ def cleanup_snapshots(ctx, retention_days: int, dry_run: bool):
         click.echo(f"Cleaning up snapshots older than {retention_days} days...")
         
         # Create database session
-        engine = create_engine(get_database_url(ctx.config))
-        Session = sessionmaker(bind=engine)
-        session = Session()
+        session = get_db_session(ctx.config)
         
         try:
             # Create snapshot manager

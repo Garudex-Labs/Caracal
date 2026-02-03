@@ -252,6 +252,15 @@ except ImportError:
     pass
 
 
+# Import and register Snapshot commands (v0.3)
+try:
+    from caracal.cli.snapshot import snapshot_group
+    cli.add_command(snapshot_group)
+except ImportError:
+    # Snapshot commands not available
+    pass
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
