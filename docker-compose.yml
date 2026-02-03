@@ -70,6 +70,47 @@ services:
           cpus: '0.5'
           memory: 512M
 
+  # Redis Cache
+  # Provides real-time spending cache and metrics aggregation for v0.3
+  # Requirements: 21.4, 25.6
+  redis:
+    image: redis:7-alpine
+    container_name: caracal-redis
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-caracal_redis_password}
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      # Persistent Redis storage (RDB + AOF)
+      - redis_data:/data
+    ports:
+      # Expose Redis port (default: 6379)
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    # Resource limits (adjust based on your workload)
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
   # Caracal Gateway Proxy
   # Network-enforced policy enforcement for AI agents
   gateway:
@@ -80,6 +121,8 @@ services:
     container_name: caracal-gateway
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       # Gateway HTTPS port (default: 8443)
@@ -110,6 +153,15 @@ services:
       DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      
+      # Redis Configuration (v0.3)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-caracal_redis_password}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_SSL: ${REDIS_SSL:-false}
+      REDIS_SPENDING_CACHE_TTL: ${REDIS_SPENDING_CACHE_TTL:-86400}
+      REDIS_METRICS_CACHE_TTL: ${REDIS_METRICS_CACHE_TTL:-3600}
       
       # Gateway Configuration
       LISTEN_ADDRESS: "0.0.0.0:8443"
@@ -241,4 +293,8 @@ networks:
 volumes:
   # PostgreSQL persistent storage
   postgres_data:
+    driver: local
+  
+  # Redis persistent storage (RDB + AOF)
+  redis_data:
     driver: local
