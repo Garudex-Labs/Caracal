@@ -194,65 +194,61 @@ class GatewayProxy:
             
             Checks:
             - Database connectivity (if db_connection_manager provided)
+            - Kafka connectivity (if kafka_producer provided)
+            - Redis connectivity (if redis_client provided)
             - Policy cache status (if enabled)
             
             Returns:
             - 200 OK: Service is healthy and all dependencies are available
-            - 503 Service Unavailable: Service is in degraded mode (database unavailable but cache available)
+            - 503 Service Unavailable: Service is in degraded mode or unhealthy
             
-            Requirements: 17.4, 22.5
+            Requirements: 17.4, 22.5, Deployment
             """
-            status_code = status.HTTP_200_OK
-            health_status = "healthy"
-            checks = {}
+            from caracal.monitoring.health import HealthChecker, HealthStatus
             
-            # Check database connectivity
-            db_healthy = True
-            if self.db_connection_manager:
-                try:
-                    db_healthy = self.db_connection_manager.health_check()
-                    checks["database"] = "healthy" if db_healthy else "unhealthy"
-                except Exception as e:
-                    db_healthy = False
-                    checks["database"] = f"unhealthy ({type(e).__name__})"
-                    logger.error(f"Database health check failed: {e}")
-            else:
-                checks["database"] = "not_configured"
+            # Create health checker with available components
+            health_checker = HealthChecker(
+                service_name="caracal-gateway-proxy",
+                service_version="0.3.0",
+                db_connection_manager=self.db_connection_manager,
+                kafka_producer=self.kafka_producer,
+                redis_client=getattr(self, 'redis_client', None)
+            )
             
-            # Check policy cache status
+            # Perform health checks
+            health_result = await health_checker.check_health()
+            
+            # Add policy cache status
             if self.policy_cache:
                 cache_stats = self.policy_cache.get_stats()
-                checks["policy_cache"] = {
-                    "status": "enabled",
-                    "size": cache_stats.size,
-                    "max_size": cache_stats.max_size,
-                    "hit_rate": cache_stats.hit_rate
-                }
+                health_result.checks.append(
+                    type('HealthCheckResult', (), {
+                        'name': 'policy_cache',
+                        'status': HealthStatus.HEALTHY,
+                        'message': 'Policy cache enabled',
+                        'details': {
+                            'size': cache_stats.size,
+                            'max_size': cache_stats.max_size,
+                            'hit_rate': cache_stats.hit_rate
+                        },
+                        'to_dict': lambda self: {
+                            'name': self.name,
+                            'status': self.status.value,
+                            'message': self.message,
+                            'details': self.details
+                        }
+                    })()
+                )
+            
+            # Determine HTTP status code
+            if health_result.status == HealthStatus.HEALTHY:
+                status_code = status.HTTP_200_OK
             else:
-                checks["policy_cache"] = {"status": "disabled"}
-            
-            # Determine overall health status
-            # If database is unhealthy but policy cache is available, return degraded mode (503)
-            if not db_healthy:
-                if self.policy_cache and self.config.enable_policy_cache:
-                    health_status = "degraded"
-                    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-                    logger.warning("Gateway in degraded mode: database unavailable, using policy cache")
-                else:
-                    health_status = "unhealthy"
-                    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-                    logger.error("Gateway unhealthy: database unavailable and no policy cache")
-            
-            response_data = {
-                "status": health_status,
-                "service": "caracal-gateway-proxy",
-                "version": "0.2.0",
-                "checks": checks
-            }
+                status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             
             return JSONResponse(
                 status_code=status_code,
-                content=response_data
+                content=health_result.to_dict()
             )
         
         @self.app.get("/metrics")

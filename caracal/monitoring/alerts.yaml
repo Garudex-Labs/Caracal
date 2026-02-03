@@ -1,0 +1,387 @@
+# Prometheus Alert Rules for Caracal Core v0.3
+#
+# This file defines alerting rules for monitoring Caracal Core components.
+# Deploy to Prometheus using:
+#   kubectl apply -f monitoring/alerts.yaml
+#
+# Requirements: 24.1, 24.5, Deployment
+
+groups:
+  - name: caracal_kafka_alerts
+    interval: 30s
+    rules:
+      # Alert when Kafka consumer lag exceeds threshold
+      - alert: KafkaConsumerLagHigh
+        expr: caracal_kafka_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka-consumer
+        annotations:
+          summary: "Kafka consumer lag is high"
+          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} partition {{ $labels.partition }} has lag of {{ $value }} messages (threshold: 10000)"
+          runbook: "Check consumer processing speed, scale consumers if needed, investigate errors in consumer logs"
+      
+      # Alert when Kafka consumer lag is critically high
+      - alert: KafkaConsumerLagCritical
+        expr: caracal_kafka_consumer_lag > 50000
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka-consumer
+        annotations:
+          summary: "Kafka consumer lag is critically high"
+          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} partition {{ $labels.partition }} has lag of {{ $value }} messages (threshold: 50000)"
+          runbook: "URGENT: Scale consumers immediately, check for consumer errors, investigate database performance"
+      
+      # Alert when Kafka consumer has high error rate
+      - alert: KafkaConsumerErrorRateHigh
+        expr: rate(caracal_kafka_consumer_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: kafka-consumer
+        annotations:
+          summary: "Kafka consumer error rate is high"
+          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} has error rate of {{ $value }} errors/sec (threshold: 10/sec)"
+          runbook: "Check consumer logs for error patterns, investigate database connectivity, check DLQ for failed messages"
+      
+      # Alert when Kafka message processing is slow
+      - alert: KafkaMessageProcessingSlow
+        expr: histogram_quantile(0.99, rate(caracal_kafka_message_processing_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka-consumer
+        annotations:
+          summary: "Kafka message processing is slow"
+          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} has p99 processing time of {{ $value }}s (threshold: 1s)"
+          runbook: "Check database query performance, investigate slow operations in consumer logs, consider scaling consumers"
+
+  - name: caracal_dlq_alerts
+    interval: 30s
+    rules:
+      # Alert when DLQ size exceeds threshold
+      - alert: DeadLetterQueueSizeHigh
+        expr: caracal_dlq_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: dlq
+        annotations:
+          summary: "Dead letter queue size is high"
+          description: "DLQ has {{ $value }} messages (threshold: 1000)"
+          runbook: "Investigate failed messages in DLQ using 'caracal dlq list', check for error patterns, fix root cause and retry messages"
+      
+      # Alert when DLQ size is critically high
+      - alert: DeadLetterQueueSizeCritical
+        expr: caracal_dlq_size > 10000
+        for: 2m
+        labels:
+          severity: critical
+          component: dlq
+        annotations:
+          summary: "Dead letter queue size is critically high"
+          description: "DLQ has {{ $value }} messages (threshold: 10000)"
+          runbook: "URGENT: Investigate DLQ messages immediately, likely systemic issue causing message failures"
+      
+      # Alert when DLQ has old messages
+      - alert: DeadLetterQueueOldMessages
+        expr: caracal_dlq_oldest_message_age_seconds > 86400
+        for: 10m
+        labels:
+          severity: warning
+          component: dlq
+        annotations:
+          summary: "Dead letter queue has old messages"
+          description: "Oldest message in DLQ is {{ $value }}s old (threshold: 24 hours)"
+          runbook: "Review old DLQ messages, determine if they can be retried or should be archived"
+
+  - name: caracal_merkle_alerts
+    interval: 30s
+    rules:
+      # Alert on Merkle verification failures (CRITICAL - indicates tampering)
+      - alert: MerkleVerificationFailure
+        expr: increase(caracal_merkle_verification_failures_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: merkle-tree
+          security: true
+        annotations:
+          summary: "Merkle verification failure detected"
+          description: "{{ $value }} Merkle verification failures detected in last 5 minutes - POSSIBLE DATA TAMPERING"
+          runbook: "SECURITY INCIDENT: Stop all writes, preserve evidence, notify security team, investigate tampering"
+      
+      # Alert when Merkle batch processing is slow
+      - alert: MerkleBatchProcessingSlow
+        expr: histogram_quantile(0.99, rate(caracal_merkle_batch_processing_duration_seconds_bucket[5m])) > 10.0
+        for: 5m
+        labels:
+          severity: warning
+          component: merkle-tree
+        annotations:
+          summary: "Merkle batch processing is slow"
+          description: "Merkle batch processing p99 time is {{ $value }}s (threshold: 10s)"
+          runbook: "Check Merkle signer performance, investigate database write performance, consider reducing batch size"
+      
+      # Alert when Merkle batch size is too large
+      - alert: MerkleBatchSizeTooLarge
+        expr: histogram_quantile(0.99, rate(caracal_merkle_batch_size_bucket[5m])) > 100000
+        for: 10m
+        labels:
+          severity: warning
+          component: merkle-tree
+        annotations:
+          summary: "Merkle batch size is too large"
+          description: "Merkle batch size p99 is {{ $value }} events (threshold: 100000)"
+          runbook: "Reduce batch size configuration to improve processing time and memory usage"
+
+  - name: caracal_database_alerts
+    interval: 30s
+    rules:
+      # Alert on database connection failures
+      - alert: DatabaseConnectionFailures
+        expr: rate(caracal_database_connection_errors_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection failures detected"
+          description: "{{ $value }} database connection errors/sec (threshold: 1/sec)"
+          runbook: "Check PostgreSQL pod status, verify database credentials, check network connectivity, review connection pool settings"
+      
+      # Alert when database connection pool is exhausted
+      - alert: DatabaseConnectionPoolExhausted
+        expr: caracal_database_connection_pool_checked_out / caracal_database_connection_pool_size > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value | humanizePercentage }} of connection pool in use (threshold: 90%)"
+          runbook: "Increase connection pool size, investigate slow queries, check for connection leaks"
+      
+      # Alert when database queries are slow
+      - alert: DatabaseQueriesSlow
+        expr: histogram_quantile(0.99, rate(caracal_database_query_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database queries are slow"
+          description: "Database query p99 time is {{ $value }}s (threshold: 1s)"
+          runbook: "Check slow query logs, add missing indexes, optimize queries, consider scaling database"
+
+  - name: caracal_redis_alerts
+    interval: 30s
+    rules:
+      # Alert on Redis connection failures
+      - alert: RedisConnectionFailures
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: redis
+        annotations:
+          summary: "Redis connection failures detected"
+          description: "Redis is unreachable"
+          runbook: "Check Redis pod status, verify Redis credentials, check network connectivity"
+      
+      # Alert when Redis memory usage is high
+      - alert: RedisMemoryUsageHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook: "Increase Redis memory limit, reduce cache TTL, investigate memory leaks"
+
+  - name: caracal_gateway_alerts
+    interval: 30s
+    rules:
+      # Alert when gateway is in degraded mode
+      - alert: GatewayDegradedMode
+        expr: caracal_gateway_degraded_mode_requests_total > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: gateway
+        annotations:
+          summary: "Gateway is operating in degraded mode"
+          description: "Gateway has processed {{ $value }} requests in degraded mode (using policy cache)"
+          runbook: "Check database connectivity, investigate policy service issues, gateway will use cached policies until database recovers"
+      
+      # Alert when gateway auth failure rate is high
+      - alert: GatewayAuthFailureRateHigh
+        expr: rate(caracal_gateway_auth_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: gateway
+        annotations:
+          summary: "Gateway authentication failure rate is high"
+          description: "{{ $value }} auth failures/sec (threshold: 10/sec)"
+          runbook: "Check for invalid credentials, investigate potential brute force attack, review auth logs"
+      
+      # Alert when gateway request latency is high
+      - alert: GatewayRequestLatencyHigh
+        expr: histogram_quantile(0.99, rate(caracal_gateway_request_duration_seconds_bucket[5m])) > 5.0
+        for: 5m
+        labels:
+          severity: warning
+          component: gateway
+        annotations:
+          summary: "Gateway request latency is high"
+          description: "Gateway request p99 latency is {{ $value }}s (threshold: 5s)"
+          runbook: "Check policy evaluation performance, investigate database query performance, check target API latency"
+      
+      # Alert when gateway error rate is high
+      - alert: GatewayErrorRateHigh
+        expr: rate(caracal_gateway_requests_total{status_code=~"5.."}[5m]) / rate(caracal_gateway_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: gateway
+        annotations:
+          summary: "Gateway error rate is high"
+          description: "{{ $value | humanizePercentage }} of requests are failing (threshold: 5%)"
+          runbook: "Check gateway logs for errors, investigate downstream service issues, check database connectivity"
+
+  - name: caracal_policy_alerts
+    interval: 30s
+    rules:
+      # Alert when policy evaluation is slow
+      - alert: PolicyEvaluationSlow
+        expr: histogram_quantile(0.99, rate(caracal_policy_evaluation_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: policy
+        annotations:
+          summary: "Policy evaluation is slow"
+          description: "Policy evaluation p99 time is {{ $value }}s (threshold: 1s)"
+          runbook: "Check database query performance, investigate spending cache performance, optimize policy queries"
+      
+      # Alert when policy cache hit rate is low
+      - alert: PolicyCacheHitRateLow
+        expr: rate(caracal_policy_cache_hits_total[5m]) / (rate(caracal_policy_cache_hits_total[5m]) + rate(caracal_policy_cache_misses_total[5m])) < 0.5
+        for: 10m
+        labels:
+          severity: info
+          component: policy
+        annotations:
+          summary: "Policy cache hit rate is low"
+          description: "Policy cache hit rate is {{ $value | humanizePercentage }} (threshold: 50%)"
+          runbook: "Increase cache TTL, increase cache size, investigate cache eviction patterns"
+
+  - name: caracal_snapshot_alerts
+    interval: 30s
+    rules:
+      # Alert when snapshot creation is slow
+      - alert: SnapshotCreationSlow
+        expr: histogram_quantile(0.99, rate(caracal_snapshot_creation_duration_seconds_bucket[5m])) > 600
+        for: 5m
+        labels:
+          severity: warning
+          component: snapshot
+        annotations:
+          summary: "Snapshot creation is slow"
+          description: "Snapshot creation p99 time is {{ $value }}s (threshold: 10 minutes)"
+          runbook: "Check database performance, investigate snapshot size, consider optimizing snapshot queries"
+      
+      # Alert when snapshot creation fails
+      - alert: SnapshotCreationFailure
+        expr: increase(caracal_snapshots_created_total{trigger="scheduled"}[24h]) == 0
+        for: 1h
+        labels:
+          severity: warning
+          component: snapshot
+        annotations:
+          summary: "No snapshots created in last 24 hours"
+          description: "Scheduled snapshot creation may be failing"
+          runbook: "Check snapshot scheduler logs, verify snapshot configuration, manually create snapshot if needed"
+
+  - name: caracal_allowlist_alerts
+    interval: 30s
+    rules:
+      # Alert when allowlist check latency is high
+      - alert: AllowlistCheckLatencyHigh
+        expr: histogram_quantile(0.99, rate(caracal_allowlist_check_duration_seconds_bucket[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: allowlist
+        annotations:
+          summary: "Allowlist check latency is high"
+          description: "Allowlist check p99 time is {{ $value }}s (threshold: 10ms)"
+          runbook: "Check allowlist cache performance, investigate regex pattern complexity, optimize patterns"
+      
+      # Alert when allowlist cache hit rate is low
+      - alert: AllowlistCacheHitRateLow
+        expr: rate(caracal_allowlist_cache_hits_total[5m]) / (rate(caracal_allowlist_cache_hits_total[5m]) + rate(caracal_allowlist_cache_misses_total[5m])) < 0.7
+        for: 10m
+        labels:
+          severity: info
+          component: allowlist
+        annotations:
+          summary: "Allowlist cache hit rate is low"
+          description: "Allowlist cache hit rate is {{ $value | humanizePercentage }} (threshold: 70%)"
+          runbook: "Increase cache TTL, investigate cache eviction patterns"
+
+  - name: caracal_system_alerts
+    interval: 30s
+    rules:
+      # Alert when pod is restarting frequently
+      - alert: PodRestartingFrequently
+        expr: rate(kube_pod_container_status_restarts_total{namespace="caracal"}[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Pod is restarting frequently"
+          description: "Pod {{ $labels.pod }} is restarting {{ $value }} times/min (threshold: 0.1/min)"
+          runbook: "Check pod logs for errors, investigate OOMKilled events, check resource limits"
+      
+      # Alert when pod is OOMKilled
+      - alert: PodOOMKilled
+        expr: kube_pod_container_status_last_terminated_reason{namespace="caracal",reason="OOMKilled"} == 1
+        for: 0m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Pod was OOMKilled"
+          description: "Pod {{ $labels.pod }} was killed due to out of memory"
+          runbook: "Increase memory limits, investigate memory leaks, optimize memory usage"
+      
+      # Alert when pod CPU usage is high
+      - alert: PodCPUUsageHigh
+        expr: rate(container_cpu_usage_seconds_total{namespace="caracal"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Pod CPU usage is high"
+          description: "Pod {{ $labels.pod }} CPU usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook: "Increase CPU limits, investigate CPU-intensive operations, consider scaling horizontally"
+      
+      # Alert when pod memory usage is high
+      - alert: PodMemoryUsageHigh
+        expr: container_memory_working_set_bytes{namespace="caracal"} / container_spec_memory_limit_bytes{namespace="caracal"} > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Pod memory usage is high"
+          description: "Pod {{ $labels.pod }} memory usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook: "Increase memory limits, investigate memory leaks, optimize memory usage"
