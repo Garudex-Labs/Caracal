@@ -218,11 +218,14 @@ def db():
     pass
 
 
-# Import and register database commands
-from caracal.cli.db import init_db, migrate, db_status
-db.add_command(init_db)
-db.add_command(migrate)
-db.add_command(db_status, name='status')
+# Import and register database commands (lazy import to avoid circular dependency)
+def _register_db_commands():
+    from caracal.cli.db import init_db, migrate, db_status
+    db.add_command(init_db)
+    db.add_command(migrate)
+    db.add_command(db_status, name='status')
+
+_register_db_commands()
 
 
 # Import and register Kafka commands (v0.3)
@@ -259,6 +262,20 @@ try:
 except ImportError:
     # Snapshot commands not available
     pass
+
+
+# Import and register Replay commands (v0.3)
+try:
+    from caracal.cli.replay import replay_group
+    cli.add_command(replay_group)
+except ImportError as e:
+    # Replay commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Replay commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register replay commands: {e}")
 
 
 @cli.command()
