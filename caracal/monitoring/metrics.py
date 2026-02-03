@@ -273,7 +273,248 @@ class MetricsRegistry:
             registry=self.registry
         )
         
-        logger.info("Metrics registry initialized with all metric collectors")
+        # Kafka Consumer Metrics (v0.3)
+        self.kafka_consumer_lag = Gauge(
+            'caracal_kafka_consumer_lag',
+            'Kafka consumer lag (messages behind) per topic and partition',
+            ['consumer_group', 'topic', 'partition'],
+            registry=self.registry
+        )
+        
+        self.kafka_consumer_offset = Gauge(
+            'caracal_kafka_consumer_offset',
+            'Current Kafka consumer offset per topic and partition',
+            ['consumer_group', 'topic', 'partition'],
+            registry=self.registry
+        )
+        
+        self.kafka_messages_consumed_total = Counter(
+            'caracal_kafka_messages_consumed_total',
+            'Total number of Kafka messages consumed',
+            ['consumer_group', 'topic', 'status'],
+            registry=self.registry
+        )
+        
+        self.kafka_message_processing_duration_seconds = Histogram(
+            'caracal_kafka_message_processing_duration_seconds',
+            'Kafka message processing duration in seconds',
+            ['consumer_group', 'topic'],
+            buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+            registry=self.registry
+        )
+        
+        self.kafka_consumer_errors_total = Counter(
+            'caracal_kafka_consumer_errors_total',
+            'Total number of Kafka consumer errors',
+            ['consumer_group', 'topic', 'error_type'],
+            registry=self.registry
+        )
+        
+        self.kafka_consumer_rebalances_total = Counter(
+            'caracal_kafka_consumer_rebalances_total',
+            'Total number of Kafka consumer group rebalances',
+            ['consumer_group'],
+            registry=self.registry
+        )
+        
+        # Merkle Tree Metrics (v0.3)
+        self.merkle_batches_created_total = Counter(
+            'caracal_merkle_batches_created_total',
+            'Total number of Merkle batches created',
+            registry=self.registry
+        )
+        
+        self.merkle_batch_size = Histogram(
+            'caracal_merkle_batch_size',
+            'Number of events in Merkle batches',
+            buckets=(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000),
+            registry=self.registry
+        )
+        
+        self.merkle_batch_processing_duration_seconds = Histogram(
+            'caracal_merkle_batch_processing_duration_seconds',
+            'Merkle batch processing duration in seconds (tree computation + signing)',
+            buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+            registry=self.registry
+        )
+        
+        self.merkle_tree_computation_duration_seconds = Histogram(
+            'caracal_merkle_tree_computation_duration_seconds',
+            'Merkle tree computation duration in seconds',
+            buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+            registry=self.registry
+        )
+        
+        self.merkle_signing_duration_seconds = Histogram(
+            'caracal_merkle_signing_duration_seconds',
+            'Merkle root signing duration in seconds',
+            buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
+            registry=self.registry
+        )
+        
+        self.merkle_verification_duration_seconds = Histogram(
+            'caracal_merkle_verification_duration_seconds',
+            'Merkle proof verification duration in seconds',
+            buckets=(0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05),
+            registry=self.registry
+        )
+        
+        self.merkle_verification_failures_total = Counter(
+            'caracal_merkle_verification_failures_total',
+            'Total number of Merkle verification failures (tamper detected)',
+            ['failure_type'],
+            registry=self.registry
+        )
+        
+        self.merkle_events_in_current_batch = Gauge(
+            'caracal_merkle_events_in_current_batch',
+            'Number of events in current Merkle batch (not yet signed)',
+            registry=self.registry
+        )
+        
+        # Snapshot Metrics (v0.3)
+        self.snapshots_created_total = Counter(
+            'caracal_snapshots_created_total',
+            'Total number of ledger snapshots created',
+            ['trigger'],
+            registry=self.registry
+        )
+        
+        self.snapshot_creation_duration_seconds = Histogram(
+            'caracal_snapshot_creation_duration_seconds',
+            'Snapshot creation duration in seconds',
+            buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
+            registry=self.registry
+        )
+        
+        self.snapshot_size_bytes = Histogram(
+            'caracal_snapshot_size_bytes',
+            'Snapshot size in bytes',
+            buckets=(1024, 10240, 102400, 1048576, 10485760, 104857600, 1073741824),
+            registry=self.registry
+        )
+        
+        self.snapshot_event_count = Histogram(
+            'caracal_snapshot_event_count',
+            'Number of events in snapshot',
+            buckets=(100, 1000, 10000, 100000, 1000000, 10000000),
+            registry=self.registry
+        )
+        
+        self.snapshot_recovery_duration_seconds = Histogram(
+            'caracal_snapshot_recovery_duration_seconds',
+            'Snapshot recovery duration in seconds',
+            buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
+            registry=self.registry
+        )
+        
+        # Allowlist Metrics (v0.3)
+        self.allowlist_checks_total = Counter(
+            'caracal_allowlist_checks_total',
+            'Total number of allowlist checks',
+            ['agent_id', 'result'],
+            registry=self.registry
+        )
+        
+        self.allowlist_matches_total = Counter(
+            'caracal_allowlist_matches_total',
+            'Total number of allowlist matches',
+            ['agent_id', 'pattern_type'],
+            registry=self.registry
+        )
+        
+        self.allowlist_misses_total = Counter(
+            'caracal_allowlist_misses_total',
+            'Total number of allowlist misses (resource not allowed)',
+            ['agent_id'],
+            registry=self.registry
+        )
+        
+        self.allowlist_check_duration_seconds = Histogram(
+            'caracal_allowlist_check_duration_seconds',
+            'Allowlist check duration in seconds',
+            ['pattern_type'],
+            buckets=(0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05),
+            registry=self.registry
+        )
+        
+        self.allowlist_cache_hits_total = Counter(
+            'caracal_allowlist_cache_hits_total',
+            'Total number of allowlist cache hits',
+            registry=self.registry
+        )
+        
+        self.allowlist_cache_misses_total = Counter(
+            'caracal_allowlist_cache_misses_total',
+            'Total number of allowlist cache misses',
+            registry=self.registry
+        )
+        
+        self.allowlist_patterns_active = Gauge(
+            'caracal_allowlist_patterns_active',
+            'Number of active allowlist patterns per agent',
+            ['agent_id'],
+            registry=self.registry
+        )
+        
+        # Dead Letter Queue Metrics (v0.3)
+        self.dlq_messages_total = Counter(
+            'caracal_dlq_messages_total',
+            'Total number of messages sent to dead letter queue',
+            ['source_topic', 'error_type'],
+            registry=self.registry
+        )
+        
+        self.dlq_size = Gauge(
+            'caracal_dlq_size',
+            'Current number of messages in dead letter queue',
+            registry=self.registry
+        )
+        
+        self.dlq_oldest_message_age_seconds = Gauge(
+            'caracal_dlq_oldest_message_age_seconds',
+            'Age of oldest message in dead letter queue in seconds',
+            registry=self.registry
+        )
+        
+        # Policy Versioning Metrics (v0.3)
+        self.policy_versions_created_total = Counter(
+            'caracal_policy_versions_created_total',
+            'Total number of policy versions created',
+            ['change_type'],
+            registry=self.registry
+        )
+        
+        self.policy_version_queries_total = Counter(
+            'caracal_policy_version_queries_total',
+            'Total number of policy version history queries',
+            ['query_type'],
+            registry=self.registry
+        )
+        
+        # Event Replay Metrics (v0.3)
+        self.event_replay_started_total = Counter(
+            'caracal_event_replay_started_total',
+            'Total number of event replay operations started',
+            ['source'],
+            registry=self.registry
+        )
+        
+        self.event_replay_events_processed = Counter(
+            'caracal_event_replay_events_processed',
+            'Total number of events processed during replay',
+            ['source'],
+            registry=self.registry
+        )
+        
+        self.event_replay_duration_seconds = Histogram(
+            'caracal_event_replay_duration_seconds',
+            'Event replay duration in seconds',
+            buckets=(10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0),
+            registry=self.registry
+        )
+        
+        logger.info("Metrics registry initialized with all metric collectors (v0.2 + v0.3)")
     
     # Gateway Request Metrics Methods
     
