@@ -232,3 +232,8 @@ class RedisConnectionError(RedisError):
     pass
 
 
+
+# Event Replay Errors
+class EventReplayError(CaracalError):
+    """Base exception for event replay-related errors."""
+    pass
