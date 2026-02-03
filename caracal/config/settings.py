@@ -289,6 +289,38 @@ class RedisConfig:
 
 
 @dataclass
+class SnapshotConfig:
+    """Ledger snapshot configuration for v0.3."""
+    
+    enabled: bool = True
+    schedule_cron: str = "0 0 * * *"  # Daily at midnight UTC
+    retention_days: int = 90  # Retain snapshots for 90 days
+    storage_path: str = ""  # Path to snapshot storage directory
+    compression_enabled: bool = True  # Compress snapshots with gzip
+    auto_cleanup_enabled: bool = True  # Automatically delete old snapshots
+
+
+@dataclass
+class AllowlistConfig:
+    """Resource allowlist configuration for v0.3."""
+    
+    enabled: bool = True
+    default_behavior: str = "allow"  # "allow" or "deny" when no allowlist defined
+    cache_ttl: int = 60  # Cache compiled patterns for 60 seconds
+    max_patterns_per_agent: int = 1000  # Maximum patterns per agent
+
+
+@dataclass
+class EventReplayConfig:
+    """Event replay configuration for v0.3."""
+    
+    batch_size: int = 1000  # Number of events to process per batch
+    parallelism: int = 4  # Number of parallel replay workers
+    max_replay_duration_hours: int = 24  # Maximum replay duration
+    validation_enabled: bool = True  # Validate event ordering during replay
+
+
+@dataclass
 class MerkleConfig:
     """Merkle tree configuration for v0.3."""
     
@@ -359,6 +391,9 @@ class CaracalConfig:
     kafka: KafkaConfig = field(default_factory=KafkaConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
     merkle: MerkleConfig = field(default_factory=MerkleConfig)
+    snapshot: SnapshotConfig = field(default_factory=SnapshotConfig)
+    allowlist: AllowlistConfig = field(default_factory=AllowlistConfig)
+    event_replay: EventReplayConfig = field(default_factory=EventReplayConfig)
     compatibility: CompatibilityConfig = field(default_factory=CompatibilityConfig)
 
 
@@ -703,6 +738,35 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         allowlist_cache_ttl=redis_data.get('allowlist_cache_ttl', default_config.redis.allowlist_cache_ttl),
     )
     
+    # Parse snapshot configuration (optional, for v0.3)
+    snapshot_data = config_data.get('snapshot', {})
+    snapshot = SnapshotConfig(
+        enabled=snapshot_data.get('enabled', default_config.snapshot.enabled),
+        schedule_cron=snapshot_data.get('schedule_cron', default_config.snapshot.schedule_cron),
+        retention_days=snapshot_data.get('retention_days', default_config.snapshot.retention_days),
+        storage_path=os.path.expanduser(snapshot_data.get('storage_path', default_config.snapshot.storage_path)),
+        compression_enabled=snapshot_data.get('compression_enabled', default_config.snapshot.compression_enabled),
+        auto_cleanup_enabled=snapshot_data.get('auto_cleanup_enabled', default_config.snapshot.auto_cleanup_enabled),
+    )
+    
+    # Parse allowlist configuration (optional, for v0.3)
+    allowlist_data = config_data.get('allowlist', {})
+    allowlist = AllowlistConfig(
+        enabled=allowlist_data.get('enabled', default_config.allowlist.enabled),
+        default_behavior=allowlist_data.get('default_behavior', default_config.allowlist.default_behavior),
+        cache_ttl=allowlist_data.get('cache_ttl', default_config.allowlist.cache_ttl),
+        max_patterns_per_agent=allowlist_data.get('max_patterns_per_agent', default_config.allowlist.max_patterns_per_agent),
+    )
+    
+    # Parse event replay configuration (optional, for v0.3)
+    event_replay_data = config_data.get('event_replay', {})
+    event_replay = EventReplayConfig(
+        batch_size=event_replay_data.get('batch_size', default_config.event_replay.batch_size),
+        parallelism=event_replay_data.get('parallelism', default_config.event_replay.parallelism),
+        max_replay_duration_hours=event_replay_data.get('max_replay_duration_hours', default_config.event_replay.max_replay_duration_hours),
+        validation_enabled=event_replay_data.get('validation_enabled', default_config.event_replay.validation_enabled),
+    )
+    
     # Parse compatibility configuration (optional, for v0.2 compatibility)
     compatibility_data = config_data.get('compatibility', {})
     compatibility = CompatibilityConfig(
@@ -736,6 +800,9 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         kafka=kafka,
         redis=redis,
         merkle=merkle,
+        snapshot=snapshot,
+        allowlist=allowlist,
+        event_replay=event_replay,
         compatibility=compatibility,
     )
 
@@ -1142,4 +1209,60 @@ def _validate_config(config: CaracalConfig) -> None:
         raise InvalidConfigurationError(
             f"compatibility mode must be one of {valid_compatibility_modes}, "
             f"got '{config.compatibility.mode}'"
+        )
+    
+    # Validate snapshot configuration (v0.3)
+    if config.snapshot.enabled:
+        if config.snapshot.retention_days < 1:
+            raise InvalidConfigurationError(
+                f"snapshot retention_days must be at least 1, got {config.snapshot.retention_days}"
+            )
+        
+        # Validate cron expression format (basic validation)
+        if not config.snapshot.schedule_cron:
+            raise InvalidConfigurationError("snapshot schedule_cron cannot be empty when snapshots are enabled")
+        
+        # Cron expression should have 5 fields (minute hour day month weekday)
+        cron_fields = config.snapshot.schedule_cron.split()
+        if len(cron_fields) != 5:
+            raise InvalidConfigurationError(
+                f"snapshot schedule_cron must have 5 fields (minute hour day month weekday), "
+                f"got {len(cron_fields)} fields: '{config.snapshot.schedule_cron}'"
+            )
+    
+    # Validate allowlist configuration (v0.3)
+    if config.allowlist.enabled:
+        valid_default_behaviors = ["allow", "deny"]
+        if config.allowlist.default_behavior not in valid_default_behaviors:
+            raise InvalidConfigurationError(
+                f"allowlist default_behavior must be one of {valid_default_behaviors}, "
+                f"got '{config.allowlist.default_behavior}'"
+            )
+        
+        if config.allowlist.cache_ttl < 1:
+            raise InvalidConfigurationError(
+                f"allowlist cache_ttl must be at least 1, got {config.allowlist.cache_ttl}"
+            )
+        
+        if config.allowlist.max_patterns_per_agent < 1:
+            raise InvalidConfigurationError(
+                f"allowlist max_patterns_per_agent must be at least 1, "
+                f"got {config.allowlist.max_patterns_per_agent}"
+            )
+    
+    # Validate event replay configuration (v0.3)
+    if config.event_replay.batch_size < 1:
+        raise InvalidConfigurationError(
+            f"event_replay batch_size must be at least 1, got {config.event_replay.batch_size}"
+        )
+    
+    if config.event_replay.parallelism < 1:
+        raise InvalidConfigurationError(
+            f"event_replay parallelism must be at least 1, got {config.event_replay.parallelism}"
+        )
+    
+    if config.event_replay.max_replay_duration_hours < 1:
+        raise InvalidConfigurationError(
+            f"event_replay max_replay_duration_hours must be at least 1, "
+            f"got {config.event_replay.max_replay_duration_hours}"
         )
