@@ -298,3 +298,401 @@ def log_delegation_token_validation(
     else:
         logger.warning("delegation_token_validation", **log_data)
 
+
+# v0.3 Structured Logging Functions
+
+def log_merkle_root_computation(
+    logger: structlog.stdlib.BoundLogger,
+    batch_id: str,
+    event_count: int,
+    merkle_root: str,
+    duration_ms: float,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a Merkle root computation.
+    
+    Args:
+        logger: Logger instance
+        batch_id: Batch ID
+        event_count: Number of events in batch
+        merkle_root: Computed Merkle root (hex encoded)
+        duration_ms: Computation duration in milliseconds
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "merkle_root_computation",
+        "batch_id": batch_id,
+        "event_count": event_count,
+        "merkle_root": merkle_root,
+        "duration_ms": duration_ms,
+    }
+    
+    log_data.update(kwargs)
+    
+    logger.info("merkle_root_computation", **log_data)
+
+
+def log_merkle_signature(
+    logger: structlog.stdlib.BoundLogger,
+    batch_id: str,
+    merkle_root: str,
+    signature: str,
+    signing_backend: str,
+    duration_ms: float,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a Merkle root signature.
+    
+    Args:
+        logger: Logger instance
+        batch_id: Batch ID
+        merkle_root: Merkle root that was signed (hex encoded)
+        signature: Signature (hex encoded)
+        signing_backend: Backend used for signing (software, hsm)
+        duration_ms: Signing duration in milliseconds
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "merkle_signature",
+        "batch_id": batch_id,
+        "merkle_root": merkle_root,
+        "signature": signature,
+        "signing_backend": signing_backend,
+        "duration_ms": duration_ms,
+    }
+    
+    log_data.update(kwargs)
+    
+    logger.info("merkle_signature", **log_data)
+
+
+def log_merkle_verification(
+    logger: structlog.stdlib.BoundLogger,
+    batch_id: str,
+    success: bool,
+    duration_ms: float,
+    failure_reason: Optional[str] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a Merkle verification operation.
+    
+    Args:
+        logger: Logger instance
+        batch_id: Batch ID
+        success: Whether verification succeeded
+        duration_ms: Verification duration in milliseconds
+        failure_reason: Reason for failure if not successful
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "merkle_verification",
+        "batch_id": batch_id,
+        "success": success,
+        "duration_ms": duration_ms,
+    }
+    
+    if failure_reason is not None:
+        log_data["failure_reason"] = failure_reason
+    
+    log_data.update(kwargs)
+    
+    if success:
+        logger.info("merkle_verification", **log_data)
+    else:
+        logger.error("merkle_verification_failed", **log_data)
+
+
+def log_policy_version_change(
+    logger: structlog.stdlib.BoundLogger,
+    policy_id: str,
+    agent_id: str,
+    change_type: str,
+    version_number: int,
+    changed_by: str,
+    change_reason: str,
+    before_values: Optional[Dict[str, Any]] = None,
+    after_values: Optional[Dict[str, Any]] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a policy version change.
+    
+    Args:
+        logger: Logger instance
+        policy_id: Policy ID
+        agent_id: Agent ID
+        change_type: Type of change (created, modified, deactivated)
+        version_number: New version number
+        changed_by: Identity of who made the change
+        change_reason: Reason for the change
+        before_values: Policy values before change
+        after_values: Policy values after change
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "policy_version_change",
+        "policy_id": policy_id,
+        "agent_id": agent_id,
+        "change_type": change_type,
+        "version_number": version_number,
+        "changed_by": changed_by,
+        "change_reason": change_reason,
+    }
+    
+    if before_values is not None:
+        log_data["before_values"] = before_values
+    if after_values is not None:
+        log_data["after_values"] = after_values
+    
+    log_data.update(kwargs)
+    
+    logger.info("policy_version_change", **log_data)
+
+
+def log_allowlist_check(
+    logger: structlog.stdlib.BoundLogger,
+    agent_id: str,
+    resource: str,
+    result: str,
+    matched_pattern: Optional[str] = None,
+    pattern_type: Optional[str] = None,
+    duration_ms: Optional[float] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log an allowlist check.
+    
+    Args:
+        logger: Logger instance
+        agent_id: Agent ID
+        resource: Resource being checked
+        result: Check result (allowed, denied, no_allowlist)
+        matched_pattern: Pattern that matched (if allowed)
+        pattern_type: Type of pattern (regex, glob)
+        duration_ms: Check duration in milliseconds
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "allowlist_check",
+        "agent_id": agent_id,
+        "resource": resource,
+        "result": result,
+    }
+    
+    if matched_pattern is not None:
+        log_data["matched_pattern"] = matched_pattern
+    if pattern_type is not None:
+        log_data["pattern_type"] = pattern_type
+    if duration_ms is not None:
+        log_data["duration_ms"] = duration_ms
+    
+    log_data.update(kwargs)
+    
+    if result == "allowed":
+        logger.info("allowlist_check", **log_data)
+    elif result == "denied":
+        logger.warning("allowlist_check_denied", **log_data)
+    else:
+        logger.debug("allowlist_check", **log_data)
+
+
+def log_event_replay(
+    logger: structlog.stdlib.BoundLogger,
+    replay_id: str,
+    source: str,
+    start_offset: Optional[int] = None,
+    start_timestamp: Optional[str] = None,
+    events_processed: Optional[int] = None,
+    duration_seconds: Optional[float] = None,
+    status: str = "started",
+    **kwargs: Any,
+) -> None:
+    """
+    Log an event replay operation.
+    
+    Args:
+        logger: Logger instance
+        replay_id: Unique replay operation ID
+        source: Replay source (timestamp, snapshot, offset)
+        start_offset: Starting Kafka offset (if applicable)
+        start_timestamp: Starting timestamp (if applicable)
+        events_processed: Number of events processed (if completed)
+        duration_seconds: Replay duration in seconds (if completed)
+        status: Replay status (started, in_progress, completed, failed)
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "event_replay",
+        "replay_id": replay_id,
+        "source": source,
+        "status": status,
+    }
+    
+    if start_offset is not None:
+        log_data["start_offset"] = start_offset
+    if start_timestamp is not None:
+        log_data["start_timestamp"] = start_timestamp
+    if events_processed is not None:
+        log_data["events_processed"] = events_processed
+    if duration_seconds is not None:
+        log_data["duration_seconds"] = duration_seconds
+    
+    log_data.update(kwargs)
+    
+    if status == "started":
+        logger.info("event_replay_started", **log_data)
+    elif status == "completed":
+        logger.info("event_replay_completed", **log_data)
+    elif status == "failed":
+        logger.error("event_replay_failed", **log_data)
+    else:
+        logger.debug("event_replay_progress", **log_data)
+
+
+def log_snapshot_operation(
+    logger: structlog.stdlib.BoundLogger,
+    snapshot_id: str,
+    operation: str,
+    trigger: Optional[str] = None,
+    event_count: Optional[int] = None,
+    size_bytes: Optional[int] = None,
+    duration_seconds: Optional[float] = None,
+    status: str = "started",
+    **kwargs: Any,
+) -> None:
+    """
+    Log a snapshot operation.
+    
+    Args:
+        logger: Logger instance
+        snapshot_id: Snapshot ID
+        operation: Operation type (create, restore, delete)
+        trigger: What triggered the operation (scheduled, manual, recovery)
+        event_count: Number of events in snapshot
+        size_bytes: Snapshot size in bytes
+        duration_seconds: Operation duration in seconds
+        status: Operation status (started, completed, failed)
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "snapshot_operation",
+        "snapshot_id": snapshot_id,
+        "operation": operation,
+        "status": status,
+    }
+    
+    if trigger is not None:
+        log_data["trigger"] = trigger
+    if event_count is not None:
+        log_data["event_count"] = event_count
+    if size_bytes is not None:
+        log_data["size_bytes"] = size_bytes
+    if duration_seconds is not None:
+        log_data["duration_seconds"] = duration_seconds
+    
+    log_data.update(kwargs)
+    
+    if status == "started":
+        logger.info(f"snapshot_{operation}_started", **log_data)
+    elif status == "completed":
+        logger.info(f"snapshot_{operation}_completed", **log_data)
+    elif status == "failed":
+        logger.error(f"snapshot_{operation}_failed", **log_data)
+    else:
+        logger.debug(f"snapshot_{operation}_progress", **log_data)
+
+
+def log_kafka_consumer_event(
+    logger: structlog.stdlib.BoundLogger,
+    consumer_group: str,
+    topic: str,
+    partition: int,
+    offset: int,
+    event_type: str,
+    processing_status: str,
+    duration_ms: Optional[float] = None,
+    error: Optional[str] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a Kafka consumer event.
+    
+    Args:
+        logger: Logger instance
+        consumer_group: Consumer group ID
+        topic: Topic name
+        partition: Partition number
+        offset: Message offset
+        event_type: Type of event being processed
+        processing_status: Processing status (success, error, retry, dlq)
+        duration_ms: Processing duration in milliseconds
+        error: Error message if failed
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "kafka_consumer_event",
+        "consumer_group": consumer_group,
+        "topic": topic,
+        "partition": partition,
+        "offset": offset,
+        "message_event_type": event_type,
+        "processing_status": processing_status,
+    }
+    
+    if duration_ms is not None:
+        log_data["duration_ms"] = duration_ms
+    if error is not None:
+        log_data["error"] = error
+    
+    log_data.update(kwargs)
+    
+    if processing_status == "success":
+        logger.debug("kafka_consumer_event_processed", **log_data)
+    elif processing_status == "error":
+        logger.error("kafka_consumer_event_failed", **log_data)
+    elif processing_status == "dlq":
+        logger.warning("kafka_consumer_event_sent_to_dlq", **log_data)
+    else:
+        logger.info("kafka_consumer_event", **log_data)
+
+
+def log_dlq_event(
+    logger: structlog.stdlib.BoundLogger,
+    source_topic: str,
+    source_partition: int,
+    source_offset: int,
+    error_type: str,
+    error_message: str,
+    retry_count: int,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a dead letter queue event.
+    
+    Args:
+        logger: Logger instance
+        source_topic: Original topic
+        source_partition: Original partition
+        source_offset: Original offset
+        error_type: Type of error
+        error_message: Error message
+        retry_count: Number of retries attempted
+        **kwargs: Additional context to log
+    """
+    log_data: Dict[str, Any] = {
+        "event_type": "dlq_event",
+        "source_topic": source_topic,
+        "source_partition": source_partition,
+        "source_offset": source_offset,
+        "error_type": error_type,
+        "error_message": error_message,
+        "retry_count": retry_count,
+    }
+    
+    log_data.update(kwargs)
+    
+    logger.warning("dlq_event", **log_data)
+

@@ -829,6 +829,445 @@ class MetricsRegistry:
             to_state=to_state.value
         ).inc()
     
+    # Kafka Consumer Metrics Methods (v0.3)
+    
+    def update_kafka_consumer_lag(
+        self,
+        consumer_group: str,
+        topic: str,
+        partition: int,
+        lag: int
+    ):
+        """
+        Update Kafka consumer lag.
+        
+        Args:
+            consumer_group: Consumer group ID
+            topic: Topic name
+            partition: Partition number
+            lag: Number of messages behind
+        """
+        self.kafka_consumer_lag.labels(
+            consumer_group=consumer_group,
+            topic=topic,
+            partition=str(partition)
+        ).set(lag)
+    
+    def update_kafka_consumer_offset(
+        self,
+        consumer_group: str,
+        topic: str,
+        partition: int,
+        offset: int
+    ):
+        """
+        Update Kafka consumer offset.
+        
+        Args:
+            consumer_group: Consumer group ID
+            topic: Topic name
+            partition: Partition number
+            offset: Current offset
+        """
+        self.kafka_consumer_offset.labels(
+            consumer_group=consumer_group,
+            topic=topic,
+            partition=str(partition)
+        ).set(offset)
+    
+    def record_kafka_message_consumed(
+        self,
+        consumer_group: str,
+        topic: str,
+        status: str,
+        duration_seconds: float
+    ):
+        """
+        Record a Kafka message consumption.
+        
+        Args:
+            consumer_group: Consumer group ID
+            topic: Topic name
+            status: Processing status (success, error)
+            duration_seconds: Processing duration in seconds
+        """
+        self.kafka_messages_consumed_total.labels(
+            consumer_group=consumer_group,
+            topic=topic,
+            status=status
+        ).inc()
+        
+        self.kafka_message_processing_duration_seconds.labels(
+            consumer_group=consumer_group,
+            topic=topic
+        ).observe(duration_seconds)
+    
+    @contextmanager
+    def time_kafka_message_processing(self, consumer_group: str, topic: str):
+        """
+        Context manager to time Kafka message processing.
+        
+        Args:
+            consumer_group: Consumer group ID
+            topic: Topic name
+        """
+        start_time = time.time()
+        status = "success"
+        try:
+            yield
+        except Exception:
+            status = "error"
+            raise
+        finally:
+            duration = time.time() - start_time
+            self.record_kafka_message_consumed(consumer_group, topic, status, duration)
+    
+    def record_kafka_consumer_error(
+        self,
+        consumer_group: str,
+        topic: str,
+        error_type: str
+    ):
+        """
+        Record a Kafka consumer error.
+        
+        Args:
+            consumer_group: Consumer group ID
+            topic: Topic name
+            error_type: Type of error
+        """
+        self.kafka_consumer_errors_total.labels(
+            consumer_group=consumer_group,
+            topic=topic,
+            error_type=error_type
+        ).inc()
+    
+    def record_kafka_consumer_rebalance(self, consumer_group: str):
+        """
+        Record a Kafka consumer group rebalance.
+        
+        Args:
+            consumer_group: Consumer group ID
+        """
+        self.kafka_consumer_rebalances_total.labels(
+            consumer_group=consumer_group
+        ).inc()
+    
+    # Merkle Tree Metrics Methods (v0.3)
+    
+    def record_merkle_batch_created(
+        self,
+        batch_size: int,
+        processing_duration_seconds: float,
+        tree_computation_duration_seconds: float,
+        signing_duration_seconds: float
+    ):
+        """
+        Record a Merkle batch creation.
+        
+        Args:
+            batch_size: Number of events in batch
+            processing_duration_seconds: Total processing duration
+            tree_computation_duration_seconds: Tree computation duration
+            signing_duration_seconds: Signing duration
+        """
+        self.merkle_batches_created_total.inc()
+        self.merkle_batch_size.observe(batch_size)
+        self.merkle_batch_processing_duration_seconds.observe(processing_duration_seconds)
+        self.merkle_tree_computation_duration_seconds.observe(tree_computation_duration_seconds)
+        self.merkle_signing_duration_seconds.observe(signing_duration_seconds)
+    
+    @contextmanager
+    def time_merkle_tree_computation(self):
+        """Context manager to time Merkle tree computation."""
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start_time
+            self.merkle_tree_computation_duration_seconds.observe(duration)
+    
+    @contextmanager
+    def time_merkle_signing(self):
+        """Context manager to time Merkle root signing."""
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start_time
+            self.merkle_signing_duration_seconds.observe(duration)
+    
+    def record_merkle_verification(self, duration_seconds: float, success: bool, failure_type: Optional[str] = None):
+        """
+        Record a Merkle proof verification.
+        
+        Args:
+            duration_seconds: Verification duration in seconds
+            success: Whether verification succeeded
+            failure_type: Type of failure if not successful
+        """
+        self.merkle_verification_duration_seconds.observe(duration_seconds)
+        
+        if not success and failure_type:
+            self.merkle_verification_failures_total.labels(
+                failure_type=failure_type
+            ).inc()
+    
+    @contextmanager
+    def time_merkle_verification(self):
+        """Context manager to time Merkle proof verification."""
+        start_time = time.time()
+        success = True
+        failure_type = None
+        try:
+            yield
+        except Exception as e:
+            success = False
+            failure_type = type(e).__name__
+            raise
+        finally:
+            duration = time.time() - start_time
+            self.record_merkle_verification(duration, success, failure_type)
+    
+    def set_merkle_events_in_current_batch(self, count: int):
+        """
+        Set the number of events in current Merkle batch.
+        
+        Args:
+            count: Number of events
+        """
+        self.merkle_events_in_current_batch.set(count)
+    
+    # Snapshot Metrics Methods (v0.3)
+    
+    def record_snapshot_created(
+        self,
+        trigger: str,
+        duration_seconds: float,
+        size_bytes: int,
+        event_count: int
+    ):
+        """
+        Record a snapshot creation.
+        
+        Args:
+            trigger: What triggered the snapshot (scheduled, manual, recovery)
+            duration_seconds: Creation duration in seconds
+            size_bytes: Snapshot size in bytes
+            event_count: Number of events in snapshot
+        """
+        self.snapshots_created_total.labels(trigger=trigger).inc()
+        self.snapshot_creation_duration_seconds.observe(duration_seconds)
+        self.snapshot_size_bytes.observe(size_bytes)
+        self.snapshot_event_count.observe(event_count)
+    
+    @contextmanager
+    def time_snapshot_creation(self, trigger: str):
+        """
+        Context manager to time snapshot creation.
+        
+        Args:
+            trigger: What triggered the snapshot
+        """
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start_time
+            # Note: size and event_count will be recorded separately
+            self.snapshots_created_total.labels(trigger=trigger).inc()
+            self.snapshot_creation_duration_seconds.observe(duration)
+    
+    def record_snapshot_recovery(self, duration_seconds: float):
+        """
+        Record a snapshot recovery operation.
+        
+        Args:
+            duration_seconds: Recovery duration in seconds
+        """
+        self.snapshot_recovery_duration_seconds.observe(duration_seconds)
+    
+    @contextmanager
+    def time_snapshot_recovery(self):
+        """Context manager to time snapshot recovery."""
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start_time
+            self.record_snapshot_recovery(duration)
+    
+    # Allowlist Metrics Methods (v0.3)
+    
+    def record_allowlist_check(
+        self,
+        agent_id: str,
+        result: str,
+        pattern_type: Optional[str] = None,
+        duration_seconds: Optional[float] = None
+    ):
+        """
+        Record an allowlist check.
+        
+        Args:
+            agent_id: Agent ID
+            result: Check result (allowed, denied, no_allowlist)
+            pattern_type: Pattern type if matched (regex, glob)
+            duration_seconds: Check duration in seconds
+        """
+        self.allowlist_checks_total.labels(
+            agent_id=agent_id,
+            result=result
+        ).inc()
+        
+        if result == "allowed" and pattern_type:
+            self.allowlist_matches_total.labels(
+                agent_id=agent_id,
+                pattern_type=pattern_type
+            ).inc()
+        elif result == "denied":
+            self.allowlist_misses_total.labels(agent_id=agent_id).inc()
+        
+        if duration_seconds and pattern_type:
+            self.allowlist_check_duration_seconds.labels(
+                pattern_type=pattern_type
+            ).observe(duration_seconds)
+    
+    @contextmanager
+    def time_allowlist_check(self, agent_id: str, pattern_type: str):
+        """
+        Context manager to time allowlist checks.
+        
+        Args:
+            agent_id: Agent ID
+            pattern_type: Pattern type (regex, glob)
+        """
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start_time
+            self.allowlist_check_duration_seconds.labels(
+                pattern_type=pattern_type
+            ).observe(duration)
+    
+    def record_allowlist_cache_hit(self):
+        """Record an allowlist cache hit."""
+        self.allowlist_cache_hits_total.inc()
+    
+    def record_allowlist_cache_miss(self):
+        """Record an allowlist cache miss."""
+        self.allowlist_cache_misses_total.inc()
+    
+    def set_allowlist_patterns_active(self, agent_id: str, count: int):
+        """
+        Set the number of active allowlist patterns for an agent.
+        
+        Args:
+            agent_id: Agent ID
+            count: Number of active patterns
+        """
+        self.allowlist_patterns_active.labels(agent_id=agent_id).set(count)
+    
+    # Dead Letter Queue Metrics Methods (v0.3)
+    
+    def record_dlq_message(self, source_topic: str, error_type: str):
+        """
+        Record a message sent to dead letter queue.
+        
+        Args:
+            source_topic: Original topic the message came from
+            error_type: Type of error that caused DLQ
+        """
+        self.dlq_messages_total.labels(
+            source_topic=source_topic,
+            error_type=error_type
+        ).inc()
+    
+    def update_dlq_size(self, size: int):
+        """
+        Update dead letter queue size.
+        
+        Args:
+            size: Current number of messages in DLQ
+        """
+        self.dlq_size.set(size)
+    
+    def update_dlq_oldest_message_age(self, age_seconds: float):
+        """
+        Update age of oldest message in DLQ.
+        
+        Args:
+            age_seconds: Age in seconds
+        """
+        self.dlq_oldest_message_age_seconds.set(age_seconds)
+    
+    # Policy Versioning Metrics Methods (v0.3)
+    
+    def record_policy_version_created(self, change_type: str):
+        """
+        Record a policy version creation.
+        
+        Args:
+            change_type: Type of change (created, modified, deactivated)
+        """
+        self.policy_versions_created_total.labels(change_type=change_type).inc()
+    
+    def record_policy_version_query(self, query_type: str):
+        """
+        Record a policy version history query.
+        
+        Args:
+            query_type: Type of query (history, at_time, compare)
+        """
+        self.policy_version_queries_total.labels(query_type=query_type).inc()
+    
+    # Event Replay Metrics Methods (v0.3)
+    
+    def record_event_replay_started(self, source: str):
+        """
+        Record an event replay operation started.
+        
+        Args:
+            source: Replay source (timestamp, snapshot)
+        """
+        self.event_replay_started_total.labels(source=source).inc()
+    
+    def record_event_replay_event_processed(self, source: str):
+        """
+        Record an event processed during replay.
+        
+        Args:
+            source: Replay source (timestamp, snapshot)
+        """
+        self.event_replay_events_processed.labels(source=source).inc()
+    
+    def record_event_replay_completed(self, source: str, duration_seconds: float):
+        """
+        Record an event replay operation completed.
+        
+        Args:
+            source: Replay source (timestamp, snapshot)
+            duration_seconds: Replay duration in seconds
+        """
+        self.event_replay_duration_seconds.observe(duration_seconds)
+    
+    @contextmanager
+    def time_event_replay(self, source: str):
+        """
+        Context manager to time event replay operations.
+        
+        Args:
+            source: Replay source (timestamp, snapshot)
+        """
+        start_time = time.time()
+        self.record_event_replay_started(source)
+        try:
+            yield
+        finally:
+            duration = time.time() - start_time
+            self.record_event_replay_completed(source, duration)
+    
     # Metrics Export
     
     def generate_metrics(self) -> bytes:
