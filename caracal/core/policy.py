@@ -380,6 +380,31 @@ class PolicyStore:
 
 
 @dataclass
+class SinglePolicyDecision:
+    """
+    Represents the result of evaluating a single policy.
+    
+    Attributes:
+        policy_id: The policy that was evaluated
+        allowed: Whether this policy allows the action
+        limit_amount: The policy's limit amount
+        current_spending: Current spending in the time window
+        reserved_budget: Budget reserved by provisional charges
+        available_budget: Available budget (limit - spending - reserved)
+        time_window: The policy's time window
+        window_type: The policy's window type (rolling or calendar)
+    """
+    policy_id: str
+    allowed: bool
+    limit_amount: Decimal
+    current_spending: Decimal
+    reserved_budget: Decimal
+    available_budget: Decimal
+    time_window: str
+    window_type: str
+
+
+@dataclass
 class PolicyDecision:
     """
     Represents the result of a policy evaluation.
@@ -389,11 +414,15 @@ class PolicyDecision:
         reason: Human-readable explanation for the decision
         remaining_budget: Remaining budget if allowed, None otherwise
         provisional_charge_id: UUID of created provisional charge if allowed, None otherwise
+        failed_policy_id: Policy ID that caused denial (v0.3 multi-policy support)
+        policy_decisions: Individual decisions for each policy (v0.3 multi-policy support)
     """
     allowed: bool
     reason: str
     remaining_budget: Optional[Decimal] = None
     provisional_charge_id: Optional[str] = None  # UUID as string for v0.2 compatibility
+    failed_policy_id: Optional[str] = None  # NEW: Which policy failed (v0.3)
+    policy_decisions: Optional[List[SinglePolicyDecision]] = None  # NEW: Individual policy decisions (v0.3)
 
 
 class PolicyEvaluator:
@@ -439,6 +468,136 @@ class PolicyEvaluator:
         self.time_window_calculator = time_window_calculator or TimeWindowCalculator()
         logger.info("PolicyEvaluator initialized with TimeWindowCalculator")
 
+    def evaluate_single_policy(
+        self, 
+        policy: BudgetPolicy, 
+        agent_id: str, 
+        estimated_cost: Optional[Decimal],
+        current_time: datetime
+    ) -> SinglePolicyDecision:
+        """
+        Evaluate a single policy for an agent.
+        
+        Args:
+            policy: The policy to evaluate
+            agent_id: Agent identifier
+            estimated_cost: Estimated cost for the request
+            current_time: Current time for time window calculation
+            
+        Returns:
+            SinglePolicyDecision with evaluation result for this policy
+            
+        Raises:
+            PolicyEvaluationError: If evaluation fails critically
+            
+        Requirements: 19.1, 19.2, 19.3
+        """
+        try:
+            # Get window_type from policy (default to 'calendar' for v0.2 compatibility)
+            window_type = getattr(policy, 'window_type', 'calendar')
+            
+            # Calculate time window bounds using TimeWindowCalculator
+            try:
+                window_start, window_end = self.time_window_calculator.calculate_window_bounds(
+                    time_window=policy.time_window,
+                    window_type=window_type,
+                    reference_time=current_time
+                )
+                logger.debug(
+                    f"Calculated {window_type} {policy.time_window} window for policy {policy.policy_id}: "
+                    f"{window_start.isoformat()} to {window_end.isoformat()}"
+                )
+            except InvalidPolicyError as e:
+                # Fail closed on invalid time window configuration
+                logger.error(
+                    f"Invalid time window configuration for policy {policy.policy_id}: {e}",
+                    exc_info=True
+                )
+                raise PolicyEvaluationError(
+                    f"Invalid time window configuration: {e}"
+                ) from e
+            
+            # Query ledger for spending in window
+            try:
+                spending = self.ledger_query.sum_spending(agent_id, window_start, window_end)
+                logger.debug(
+                    f"Current spending for agent {agent_id} in policy {policy.policy_id}: "
+                    f"{spending} {policy.currency} (window: {window_start} to {window_end})"
+                )
+            except Exception as e:
+                # Fail closed on ledger query error
+                logger.error(
+                    f"Failed to query spending for agent {agent_id}: {e}",
+                    exc_info=True
+                )
+                raise PolicyEvaluationError(
+                    f"Failed to query spending for agent '{agent_id}': {e}"
+                ) from e
+            
+            # Query active provisional charges (v0.2 only)
+            reserved_budget = Decimal('0')
+            if self.provisional_charge_manager is not None:
+                try:
+                    # Import here to avoid circular dependency
+                    from uuid import UUID
+                    
+                    # Convert agent_id string to UUID for v0.2
+                    agent_uuid = UUID(agent_id)
+                    
+                    # Call synchronous method
+                    reserved_budget = self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
+                    
+                    logger.debug(
+                        f"Reserved budget for agent {agent_id} in policy {policy.policy_id}: "
+                        f"{reserved_budget} {policy.currency}"
+                    )
+                except Exception as e:
+                    # Fail closed on provisional charge query error
+                    logger.error(
+                        f"Failed to query reserved budget for agent {agent_id}: {e}",
+                        exc_info=True
+                    )
+                    raise PolicyEvaluationError(
+                        f"Failed to query reserved budget for agent '{agent_id}': {e}"
+                    ) from e
+            
+            # Get policy limit as Decimal
+            limit = policy.get_limit_decimal()
+            
+            # Calculate available budget (limit - spending - reserved)
+            available = limit - spending - reserved_budget
+            
+            # Check if estimated cost fits (if provided)
+            allowed = True
+            if estimated_cost is not None and estimated_cost > available:
+                allowed = False
+            elif available <= 0:
+                allowed = False
+            
+            return SinglePolicyDecision(
+                policy_id=policy.policy_id,
+                allowed=allowed,
+                limit_amount=limit,
+                current_spending=spending,
+                reserved_budget=reserved_budget,
+                available_budget=available,
+                time_window=policy.time_window,
+                window_type=window_type
+            )
+            
+        except PolicyEvaluationError:
+            # Re-raise PolicyEvaluationError (already logged)
+            raise
+        except Exception as e:
+            # Fail closed on any unexpected error
+            logger.error(
+                f"Critical error during single policy evaluation for policy {policy.policy_id}: {e}",
+                exc_info=True
+            )
+            raise PolicyEvaluationError(
+                f"Critical error during single policy evaluation: {e}"
+            ) from e
+
     def check_budget(self, agent_id: str, estimated_cost: Optional[Decimal] = None, current_time: Optional[datetime] = None) -> PolicyDecision:
         """
         Check if agent is within budget.
@@ -453,6 +612,8 @@ class PolicyEvaluator:
         - Uses TimeWindowCalculator for flexible time window calculations
         - Supports hourly, daily, weekly, monthly windows
         - Supports rolling and calendar window types
+        - Supports multiple policies per agent (all must pass)
+        - Returns which policy failed in denial message
         
         Args:
             agent_id: Agent identifier
@@ -465,7 +626,7 @@ class PolicyEvaluator:
         Raises:
             PolicyEvaluationError: If evaluation fails critically (fail-closed)
             
-        Requirements: 9.7
+        Requirements: 9.7, 19.1, 19.2, 19.3, 19.4, 19.5
         """
         try:
             # Use current UTC time if not provided
@@ -481,107 +642,59 @@ class PolicyEvaluator:
                     reason=f"No active policy found for agent '{agent_id}'"
                 )
             
-            # 2. Use the first active policy (v0.1 supports single policy per agent)
-            policy = policies[0]
+            # 2. Evaluate each policy independently (v0.3 multi-policy support)
+            policy_decisions = []
+            failed_policy = None
             
-            # 3. Get window_type from policy (default to 'calendar' for v0.2 compatibility)
-            window_type = getattr(policy, 'window_type', 'calendar')
-            
-            # 4. Calculate time window bounds using TimeWindowCalculator
-            try:
-                window_start, window_end = self.time_window_calculator.calculate_window_bounds(
-                    time_window=policy.time_window,
-                    window_type=window_type,
-                    reference_time=current_time
+            for policy in policies:
+                single_decision = self.evaluate_single_policy(
+                    policy=policy,
+                    agent_id=agent_id,
+                    estimated_cost=estimated_cost,
+                    current_time=current_time
                 )
-                logger.debug(
-                    f"Calculated {window_type} {policy.time_window} window for agent {agent_id}: "
-                    f"{window_start.isoformat()} to {window_end.isoformat()}"
-                )
-            except InvalidPolicyError as e:
-                # Fail closed on invalid time window configuration
-                logger.error(
-                    f"Invalid time window configuration for policy {policy.policy_id}: {e}",
-                    exc_info=True
-                )
-                raise PolicyEvaluationError(
-                    f"Invalid time window configuration: {e}"
-                ) from e
+                policy_decisions.append(single_decision)
+                
+                # Track first failed policy
+                if not single_decision.allowed and failed_policy is None:
+                    failed_policy = single_decision
             
-            # 5. Query ledger for spending in window
-            try:
-                spending = self.ledger_query.sum_spending(agent_id, window_start, window_end)
-                logger.debug(
-                    f"Current spending for agent {agent_id}: {spending} {policy.currency} "
-                    f"(window: {window_start} to {window_end})"
-                )
-            except Exception as e:
-                # Fail closed on ledger query error
-                logger.error(
-                    f"Failed to query spending for agent {agent_id}: {e}",
-                    exc_info=True
-                )
-                raise PolicyEvaluationError(
-                    f"Failed to query spending for agent '{agent_id}': {e}"
-                ) from e
-            
-            # 6. Query active provisional charges (v0.2 only)
-            reserved_budget = Decimal('0')
-            if self.provisional_charge_manager is not None:
-                try:
-                    # Import here to avoid circular dependency
-                    from uuid import UUID
-                    
-                    # Convert agent_id string to UUID for v0.2
-                    agent_uuid = UUID(agent_id)
-                    
-                    # Call synchronous method
-                    reserved_budget = self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
-                    
-                    logger.debug(
-                        f"Reserved budget for agent {agent_id}: {reserved_budget} {policy.currency}"
-                    )
-                except Exception as e:
-                    # Fail closed on provisional charge query error
-                    logger.error(
-                        f"Failed to query reserved budget for agent {agent_id}: {e}",
-                        exc_info=True
-                    )
-                    raise PolicyEvaluationError(
-                        f"Failed to query reserved budget for agent '{agent_id}': {e}"
-                    ) from e
-            
-            # 7. Get policy limit as Decimal
-            limit = policy.get_limit_decimal()
-            
-            # 8. Calculate available budget (limit - spending - reserved)
-            available = limit - spending - reserved_budget
-            
-            # 9. Check if estimated cost fits (if provided)
-            if estimated_cost is not None and estimated_cost > available:
+            # 3. If any policy failed, deny with specific policy information (v0.3)
+            if failed_policy is not None:
                 logger.info(
                     f"Budget check denied for agent {agent_id}: "
-                    f"Insufficient budget (need {estimated_cost}, available {available} {policy.currency})"
+                    f"Policy {failed_policy.policy_id} exceeded "
+                    f"(limit={failed_policy.limit_amount}, spent={failed_policy.current_spending}, "
+                    f"reserved={failed_policy.reserved_budget}, available={failed_policy.available_budget}, "
+                    f"window={failed_policy.time_window} {failed_policy.window_type})"
                 )
+                
+                if estimated_cost is not None:
+                    reason = (
+                        f"Policy {failed_policy.policy_id} exceeded: "
+                        f"need {estimated_cost}, available {failed_policy.available_budget} "
+                        f"(limit={failed_policy.limit_amount}, spent={failed_policy.current_spending}, "
+                        f"reserved={failed_policy.reserved_budget}, "
+                        f"window={failed_policy.time_window} {failed_policy.window_type})"
+                    )
+                else:
+                    reason = (
+                        f"Policy {failed_policy.policy_id} exceeded: "
+                        f"available {failed_policy.available_budget} "
+                        f"(limit={failed_policy.limit_amount}, spent={failed_policy.current_spending}, "
+                        f"reserved={failed_policy.reserved_budget}, "
+                        f"window={failed_policy.time_window} {failed_policy.window_type})"
+                    )
+                
                 return PolicyDecision(
                     allowed=False,
-                    reason=f"Insufficient budget: need {estimated_cost}, available {available} {policy.currency}",
-                    remaining_budget=Decimal('0')
+                    reason=reason,
+                    remaining_budget=Decimal('0'),
+                    failed_policy_id=failed_policy.policy_id,
+                    policy_decisions=policy_decisions
                 )
             
-            # 10. Check if already exceeded (even without estimated cost)
-            if available <= 0:
-                logger.info(
-                    f"Budget check denied for agent {agent_id}: "
-                    f"Budget exceeded (spent={spending}, reserved={reserved_budget}, limit={limit} {policy.currency})"
-                )
-                return PolicyDecision(
-                    allowed=False,
-                    reason=f"Budget exceeded: spent {spending} + reserved {reserved_budget} >= {limit} {policy.currency}",
-                    remaining_budget=Decimal('0')
-                )
-            
-            # 11. Create provisional charge if manager available and estimated cost provided
+            # 4. All policies passed - create provisional charge if manager available and estimated cost provided
             provisional_charge_id = None
             if self.provisional_charge_manager is not None and estimated_cost is not None:
                 try:
@@ -609,18 +722,25 @@ class PolicyEvaluator:
                         f"Failed to create provisional charge for agent '{agent_id}': {e}"
                     ) from e
             
-            # 12. Allow with remaining budget
-            remaining = available - (estimated_cost if estimated_cost is not None else Decimal('0'))
+            # 5. Calculate minimum remaining budget across all policies
+            min_remaining = min(
+                decision.available_budget - (estimated_cost if estimated_cost is not None else Decimal('0'))
+                for decision in policy_decisions
+            )
+            
+            # 6. Allow with remaining budget
             logger.info(
                 f"Budget check allowed for agent {agent_id}: "
-                f"Within budget (spent={spending}, reserved={reserved_budget}, limit={limit}, "
-                f"remaining={remaining} {policy.currency}, provisional_charge_id={provisional_charge_id})"
+                f"All {len(policies)} policies passed "
+                f"(min_remaining={min_remaining}, provisional_charge_id={provisional_charge_id})"
             )
+            
             return PolicyDecision(
                 allowed=True,
-                reason="Within budget",
-                remaining_budget=remaining,
-                provisional_charge_id=provisional_charge_id
+                reason=f"Within budget (all {len(policies)} policies passed)",
+                remaining_budget=min_remaining,
+                provisional_charge_id=provisional_charge_id,
+                policy_decisions=policy_decisions
             )
             
         except PolicyEvaluationError:
