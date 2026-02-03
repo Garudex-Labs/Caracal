@@ -85,8 +85,9 @@ class BaseKafkaConsumer(ABC):
     - Dead letter queue for failed messages
     - Offset commit after successful processing
     - Consumer group rebalancing support
+    - Parallel event processing for improved throughput (v0.3 optimization)
     
-    Requirements: 2.4, 2.5, 15.1, 15.2, 1.5, 1.6
+    Requirements: 2.4, 2.5, 15.1, 15.2, 1.5, 1.6, 23.2
     """
     
     # Dead letter queue topic
@@ -94,6 +95,9 @@ class BaseKafkaConsumer(ABC):
     
     # Maximum retry attempts
     MAX_RETRIES = 3
+    
+    # Parallel processing configuration (v0.3 optimization)
+    DEFAULT_MAX_WORKERS = 10  # Max concurrent message processing tasks
     
     def __init__(
         self,
@@ -108,7 +112,8 @@ class BaseKafkaConsumer(ABC):
         ssl_cert_location: Optional[str] = None,
         ssl_key_location: Optional[str] = None,
         consumer_config: Optional[ConsumerConfig] = None,
-        enable_transactions: bool = True
+        enable_transactions: bool = True,
+        max_workers: int = DEFAULT_MAX_WORKERS
     ):
         """
         Initialize Kafka consumer.
@@ -126,6 +131,7 @@ class BaseKafkaConsumer(ABC):
             ssl_key_location: Path to client private key
             consumer_config: ConsumerConfig instance
             enable_transactions: Enable exactly-once semantics with transactions
+            max_workers: Maximum concurrent message processing tasks (default: 10)
         """
         self.brokers = brokers
         self.topics = topics
@@ -139,6 +145,7 @@ class BaseKafkaConsumer(ABC):
         self.ssl_key_location = ssl_key_location
         self.consumer_config = consumer_config or ConsumerConfig()
         self.enable_transactions = enable_transactions
+        self.max_workers = max_workers
         
         self._consumer = None
         self._dlq_producer = None
@@ -148,10 +155,14 @@ class BaseKafkaConsumer(ABC):
         # Retry tracking per message
         self._retry_counts: Dict[str, int] = {}
         
+        # Parallel processing (v0.3 optimization)
+        self._processing_semaphore = asyncio.Semaphore(max_workers)
+        self._active_tasks: List[asyncio.Task] = []
+        
         logger.info(
             f"Initializing {self.__class__.__name__}: "
             f"brokers={brokers}, topics={topics}, group={consumer_group}, "
-            f"enable_transactions={enable_transactions}"
+            f"enable_transactions={enable_transactions}, max_workers={max_workers}"
         )
     
     def _initialize(self):
