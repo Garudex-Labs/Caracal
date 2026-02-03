@@ -17,6 +17,9 @@ from caracal.exceptions import (
     CaracalError,
     InvalidPolicyError,
 )
+from caracal.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_policy_store(config) -> PolicyStore:
@@ -786,6 +789,179 @@ def compare_versions(ctx, version1: str, version2: str, format: str):
         
         # Close connection manager
         db_manager.close()
+        
+    except CaracalError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@click.command('status')
+@click.option(
+    '--agent-id',
+    '-a',
+    required=True,
+    help='Agent ID to check policy status for',
+)
+@click.option(
+    '--format',
+    '-f',
+    type=click.Choice(['table', 'json'], case_sensitive=False),
+    default='table',
+    help='Output format (default: table)',
+)
+@click.pass_context
+def status(ctx, agent_id: str, format: str):
+    """
+    Show policy status for an agent.
+    
+    Displays all active policies for an agent and shows which policy is closest to its limit.
+    Useful for multi-policy scenarios to understand budget utilization.
+    
+    Examples:
+    
+        caracal policy status --agent-id 550e8400-e29b-41d4-a716-446655440000
+        
+        caracal policy status -a 550e8400-e29b-41d4-a716-446655440000 --format json
+    
+    Requirements: 19.6
+    """
+    try:
+        from caracal.core.policy import PolicyEvaluator
+        from caracal.core.ledger import LedgerQuery
+        from datetime import datetime
+        
+        # Get CLI context
+        cli_ctx = ctx.obj
+        
+        # Create policy store
+        policy_store = get_policy_store(cli_ctx.config)
+        
+        # Get policies for agent
+        policies = policy_store.get_policies(agent_id)
+        
+        if not policies:
+            click.echo(f"No active policies found for agent: {agent_id}")
+            return
+        
+        # Create ledger query
+        ledger_path = Path(cli_ctx.config.storage.ledger_store).expanduser()
+        ledger_query = LedgerQuery(str(ledger_path))
+        
+        # Create policy evaluator
+        evaluator = PolicyEvaluator(policy_store, ledger_query)
+        
+        # Evaluate each policy
+        current_time = datetime.utcnow()
+        policy_statuses = []
+        
+        for policy in policies:
+            try:
+                decision = evaluator.evaluate_single_policy(
+                    policy=policy,
+                    agent_id=agent_id,
+                    estimated_cost=None,
+                    current_time=current_time
+                )
+                
+                # Calculate utilization percentage
+                utilization_pct = (
+                    (decision.current_spending + decision.reserved_budget) / decision.limit_amount * 100
+                    if decision.limit_amount > 0 else 0
+                )
+                
+                policy_statuses.append({
+                    'policy_id': policy.policy_id,
+                    'time_window': decision.time_window,
+                    'window_type': decision.window_type,
+                    'limit': decision.limit_amount,
+                    'spent': decision.current_spending,
+                    'reserved': decision.reserved_budget,
+                    'available': decision.available_budget,
+                    'utilization_pct': utilization_pct,
+                    'currency': policy.currency,
+                    'status': 'OK' if decision.allowed else 'EXCEEDED'
+                })
+            except Exception as e:
+                logger.error(f"Failed to evaluate policy {policy.policy_id}: {e}")
+                policy_statuses.append({
+                    'policy_id': policy.policy_id,
+                    'time_window': policy.time_window,
+                    'window_type': getattr(policy, 'window_type', 'calendar'),
+                    'limit': policy.get_limit_decimal(),
+                    'spent': Decimal('0'),
+                    'reserved': Decimal('0'),
+                    'available': Decimal('0'),
+                    'utilization_pct': 0,
+                    'currency': policy.currency,
+                    'status': 'ERROR'
+                })
+        
+        # Find policy closest to limit
+        closest_policy = max(policy_statuses, key=lambda p: p['utilization_pct'])
+        
+        if format.lower() == 'json':
+            # JSON output
+            import json
+            output = {
+                'agent_id': agent_id,
+                'total_policies': len(policy_statuses),
+                'policies': [
+                    {
+                        'policy_id': p['policy_id'],
+                        'time_window': p['time_window'],
+                        'window_type': p['window_type'],
+                        'limit': str(p['limit']),
+                        'spent': str(p['spent']),
+                        'reserved': str(p['reserved']),
+                        'available': str(p['available']),
+                        'utilization_percent': float(p['utilization_pct']),
+                        'currency': p['currency'],
+                        'status': p['status']
+                    }
+                    for p in policy_statuses
+                ],
+                'closest_to_limit': {
+                    'policy_id': closest_policy['policy_id'],
+                    'utilization_percent': float(closest_policy['utilization_pct'])
+                }
+            }
+            click.echo(json.dumps(output, indent=2))
+        else:
+            # Table output
+            click.echo(f"Policy Status for Agent: {agent_id}")
+            click.echo(f"Total Policies: {len(policy_statuses)}")
+            click.echo("=" * 100)
+            click.echo()
+            
+            for i, status_info in enumerate(policy_statuses, 1):
+                if i > 1:
+                    click.echo()
+                    click.echo("-" * 100)
+                    click.echo()
+                
+                # Mark closest to limit
+                closest_marker = " ⚠️  CLOSEST TO LIMIT" if status_info == closest_policy else ""
+                
+                click.echo(f"Policy #{i}{closest_marker}")
+                click.echo(f"  Policy ID:     {status_info['policy_id']}")
+                click.echo(f"  Time Window:   {status_info['time_window']} ({status_info['window_type']})")
+                click.echo(f"  Status:        {status_info['status']}")
+                click.echo(f"  Limit:         {status_info['limit']} {status_info['currency']}")
+                click.echo(f"  Spent:         {status_info['spent']} {status_info['currency']}")
+                click.echo(f"  Reserved:      {status_info['reserved']} {status_info['currency']}")
+                click.echo(f"  Available:     {status_info['available']} {status_info['currency']}")
+                click.echo(f"  Utilization:   {status_info['utilization_pct']:.2f}%")
+                
+                # Show visual progress bar
+                bar_width = 40
+                filled = int(bar_width * status_info['utilization_pct'] / 100)
+                bar = '█' * filled + '░' * (bar_width - filled)
+                click.echo(f"  Progress:      [{bar}]")
         
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
