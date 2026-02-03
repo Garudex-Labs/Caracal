@@ -270,6 +270,10 @@ class KafkaEventProducer:
             'max.in.flight.requests.per.connection': self.config.producer_config.max_in_flight_requests,
             'compression.type': self.config.producer_config.compression_type,
             'enable.idempotence': self.config.producer_config.enable_idempotence,
+            # Batching configuration for performance (v0.3 optimization)
+            'batch.size': 16384,  # 16KB batch size
+            'linger.ms': self.linger_ms,  # Wait up to linger_ms before sending batch
+            'buffer.memory': 33554432,  # 32MB buffer
         }
         
         # Add SASL configuration if provided
@@ -306,7 +310,7 @@ class KafkaEventProducer:
                 self._schema_registry_client = None
         
         self._initialized = True
-        logger.info("KafkaEventProducer initialized successfully")
+        logger.info("KafkaEventProducer initialized successfully with batching enabled")
     
     async def publish_metering_event(
         self,
