@@ -42,6 +42,7 @@ from caracal.exceptions import (
     BudgetExceededError,
     PolicyEvaluationError,
 )
+from caracal._version import __version__
 from caracal.logging_config import get_logger
 from caracal.monitoring.metrics import get_metrics_registry, PolicyDecisionType
 
@@ -155,7 +156,7 @@ class GatewayProxy:
         self.app = FastAPI(
             title="Caracal Gateway Proxy",
             description="Network-enforced policy enforcement for AI agents",
-            version="0.3.0"
+            version=__version__
         )
         
         # Register routes
@@ -209,7 +210,7 @@ class GatewayProxy:
             # Create health checker with available components
             health_checker = HealthChecker(
                 service_name="caracal-gateway-proxy",
-                service_version="0.3.0",
+                service_version=__version__,
                 db_connection_manager=self.db_connection_manager,
                 kafka_producer=self.kafka_producer,
                 redis_client=getattr(self, 'redis_client', None)

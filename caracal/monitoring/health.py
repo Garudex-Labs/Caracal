@@ -18,6 +18,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, Any, Optional, List
 
+from caracal._version import __version__
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -117,7 +118,7 @@ class HealthChecker:
     def __init__(
         self,
         service_name: str,
-        service_version: str = "0.3.0",
+        service_version: str = None,
         db_connection_manager: Optional[Any] = None,
         kafka_producer: Optional[Any] = None,
         kafka_consumer: Optional[Any] = None,
@@ -128,20 +129,20 @@ class HealthChecker:
         
         Args:
             service_name: Name of the service
-            service_version: Version of the service
+            service_version: Version of the service (defaults to package version)
             db_connection_manager: Optional database connection manager
             kafka_producer: Optional Kafka producer
             kafka_consumer: Optional Kafka consumer
             redis_client: Optional Redis client
         """
         self.service_name = service_name
-        self.service_version = service_version
+        self.service_version = service_version if service_version is not None else __version__
         self.db_connection_manager = db_connection_manager
         self.kafka_producer = kafka_producer
         self.kafka_consumer = kafka_consumer
         self.redis_client = redis_client
         
-        logger.info(f"Initialized HealthChecker for {service_name} v{service_version}")
+        logger.info(f"Initialized HealthChecker for {service_name} v{self.service_version}")
     
     async def check_health(self) -> OverallHealthResult:
         """

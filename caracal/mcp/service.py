@@ -24,6 +24,7 @@ from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from caracal._version import __version__
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
 from caracal.mcp.cost_calculator import MCPCostCalculator
 from caracal.core.policy import PolicyEvaluator
@@ -144,7 +145,7 @@ class MCPAdapterService:
         self.app = FastAPI(
             title="Caracal MCP Adapter Service",
             description="HTTP API for MCP request proxying with budget enforcement",
-            version="0.3.0"
+            version=__version__
         )
         
         # Register routes
@@ -247,7 +248,7 @@ class MCPAdapterService:
             response_data = HealthCheckResponse(
                 status=overall_status,
                 service="caracal-mcp-adapter",
-                version="0.3.0",
+                version=__version__,
                 mcp_servers=mcp_server_statuses
             )
             

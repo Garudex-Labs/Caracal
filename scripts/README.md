@@ -205,8 +205,8 @@ git push origin v0.4.0
 
 # 5. Package Helm chart
 cd helm
-helm package caracal-v03
-helm push caracal-v03-0.4.0.tgz oci://registry.example.com/charts
+helm package caracal
+helm push caracal-0.4.0.tgz oci://registry.example.com/charts
 
 # 6. Publish to PyPI
 python -m build

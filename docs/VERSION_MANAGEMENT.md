@@ -13,7 +13,7 @@ The `VERSION` file contains only the version number (e.g., `0.3.0`) and is used 
 1. **Python Package** (`pyproject.toml`, `setup.py`)
 2. **Runtime Code** (`caracal/_version.py`, `caracal/__init__.py`)
 3. **Docker Images** (via build scripts)
-4. **Helm Charts** (`helm/caracal-v03/Chart.yaml`)
+4. **Helm Charts** (`helm/caracal/Chart.yaml`)
 5. **Kubernetes Manifests** (all `*.yaml` files in `k8s/`)
 
 ### How It Works
@@ -76,8 +76,8 @@ The `update-version.sh` script updates Helm Chart.yaml:
 
 ```bash
 VERSION=$(cat VERSION | tr -d '[:space:]')
-sed -i "s/^version: .*/version: $VERSION/" helm/caracal-v03/Chart.yaml
-sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" helm/caracal-v03/Chart.yaml
+sed -i "s/^version: .*/version: $VERSION/" helm/caracal/Chart.yaml
+sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" helm/caracal/Chart.yaml
 ```
 
 #### Kubernetes Manifests
@@ -155,8 +155,8 @@ git push origin v0.4.0
 
 # 6. Package Helm chart
 cd helm
-helm package caracal-v03
-helm push caracal-v03-0.4.0.tgz oci://registry.example.com/charts
+helm package caracal
+helm push caracal-0.4.0.tgz oci://registry.example.com/charts
 
 # 7. Publish to PyPI
 cd ..
@@ -185,7 +185,7 @@ Caracal Core follows [Semantic Versioning](https://semver.org/):
 
 ### update-version.sh
 
-- `helm/caracal-v03/Chart.yaml` (version and appVersion)
+- `helm/caracal/Chart.yaml` (version and appVersion)
 - All `k8s/**/*.yaml` files (app.kubernetes.io/version labels)
 
 ### build-images.sh

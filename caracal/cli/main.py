@@ -12,6 +12,7 @@ from typing import Optional
 
 import click
 
+from caracal._version import __version__
 from caracal.config.settings import get_default_config_path, load_config
 from caracal.exceptions import CaracalError, InvalidConfigurationError
 from caracal.logging_config import setup_logging
@@ -51,7 +52,7 @@ pass_context = click.make_pass_decorator(CLIContext, ensure=True)
     is_flag=True,
     help='Enable verbose output',
 )
-@click.version_option(version='0.3.0', prog_name='caracal')
+@click.version_option(version=__version__, prog_name='caracal')
 @pass_context
 def cli(ctx: CLIContext, config: Optional[Path], log_level: str, verbose: bool):
     """

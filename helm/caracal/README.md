@@ -107,7 +107,7 @@ helm install caracal caracal/caracal -n caracal --create-namespace
 helm install caracal caracal/caracal -n caracal --create-namespace -f my-values.yaml
 
 # Install from local chart
-helm install caracal ./helm/caracal-v03 -n caracal --create-namespace -f my-values.yaml
+helm install caracal ./helm/caracal -n caracal --create-namespace -f my-values.yaml
 ```
 
 ### 5. Verify installation

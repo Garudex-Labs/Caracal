@@ -175,8 +175,8 @@ Caracal/
 
 4. **Helm Chart Publication**:
    ```bash
-   helm package helm/caracal-v03
-   helm push caracal-v03-0.3.0.tgz oci://registry.example.com/charts
+   helm package helm/caracal
+   helm push caracal-0.3.0.tgz oci://registry.example.com/charts
    ```
 
 5. **Announcement**:

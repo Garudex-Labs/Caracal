@@ -209,7 +209,7 @@ kubectl create secret generic caracal-merkle-keys \
 ### 2. Update ConfigMap and Secrets
 
 ```bash
-cd k8s/v03
+cd k8s/enterprise
 
 # Update passwords in secret.yaml
 nano secret.yaml
@@ -345,7 +345,7 @@ consumers:
 
 ```bash
 # Install from local chart
-helm install caracal ./helm/caracal-v03 -n caracal -f my-values.yaml
+helm install caracal ./helm/caracal -n caracal -f my-values.yaml
 
 # Or from repository (if published)
 helm repo add caracal https://charts.caracal.dev
