@@ -379,3 +379,46 @@ class PolicyVersion(Base):
     def __repr__(self):
         return f"<PolicyVersion(version_id={self.version_id}, policy_id={self.policy_id}, version={self.version_number}, change_type={self.change_type})>"
 
+
+class ResourceAllowlist(Base):
+    """
+    Resource allowlists for fine-grained access control.
+    
+    Stores whitelist patterns (regex or glob) that define which resources
+    an agent is allowed to access. Supports both regex and glob pattern matching.
+    
+    Requirements: 7.1, 7.2, 7.3, 7.6, 7.7
+    """
+    
+    __tablename__ = "resource_allowlists"
+    
+    # Primary key
+    allowlist_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Foreign key to agent
+    agent_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("agent_identities.agent_id"),
+        nullable=False,
+        index=True,
+    )
+    
+    # Pattern configuration
+    resource_pattern = Column(String(1000), nullable=False)
+    pattern_type = Column(String(10), nullable=False)  # "regex" or "glob"
+    
+    # Metadata
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    active = Column(Boolean, nullable=False, default=True)
+    
+    # Relationships
+    agent = relationship("AgentIdentity", backref="allowlists")
+    
+    # Composite index for active allowlist queries
+    __table_args__ = (
+        Index("ix_resource_allowlists_agent_active", "agent_id", "active"),
+    )
+    
+    def __repr__(self):
+        return f"<ResourceAllowlist(allowlist_id={self.allowlist_id}, agent_id={self.agent_id}, pattern={self.resource_pattern[:50]})>"
+
