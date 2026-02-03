@@ -390,7 +390,7 @@ def history(ctx, policy_id: str, agent_id: str, change_type: str, start_time: st
     try:
         from uuid import UUID
         from datetime import datetime
-        from caracal.db.connection import get_db_session
+        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         from caracal.core.policy_versions import PolicyVersionManager
         
         # Get CLI context
@@ -403,14 +403,24 @@ def history(ctx, policy_id: str, agent_id: str, change_type: str, start_time: st
             click.echo(f"Error: Invalid policy ID format: {policy_id}", err=True)
             sys.exit(1)
         
-        # Create database session
-        db_session = get_db_session(cli_ctx.config)
+        # Create database connection manager
+        db_config = DatabaseConfig(
+            host=cli_ctx.config.database.host,
+            port=cli_ctx.config.database.port,
+            database=cli_ctx.config.database.database,
+            user=cli_ctx.config.database.user,
+            password=cli_ctx.config.database.password
+        )
+        db_manager = DatabaseConnectionManager(db_config)
+        db_manager.initialize()
         
-        # Create version manager
-        version_manager = PolicyVersionManager(db_session)
-        
-        # Get policy history
-        versions = version_manager.get_policy_history(policy_uuid)
+        # Get database session
+        with db_manager.session_scope() as db_session:
+            # Create version manager
+            version_manager = PolicyVersionManager(db_session)
+            
+            # Get policy history
+            versions = version_manager.get_policy_history(policy_uuid)
         
         if not versions:
             click.echo(f"No history found for policy: {policy_id}")
@@ -492,6 +502,9 @@ def history(ctx, policy_id: str, agent_id: str, change_type: str, start_time: st
                 click.echo(f"  Time Window:   {version.time_window} ({version.window_type})")
                 click.echo(f"  Active:        {'Yes' if version.active else 'No'}")
         
+        # Close connection manager
+        db_manager.close()
+        
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -540,7 +553,7 @@ def version_at(ctx, policy_id: str, timestamp: str, format: str):
     try:
         from uuid import UUID
         from datetime import datetime
-        from caracal.db.connection import get_db_session
+        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         from caracal.core.policy_versions import PolicyVersionManager
         
         # Get CLI context
@@ -560,14 +573,24 @@ def version_at(ctx, policy_id: str, timestamp: str, format: str):
             click.echo(f"Error: Invalid timestamp format: {timestamp}", err=True)
             sys.exit(1)
         
-        # Create database session
-        db_session = get_db_session(cli_ctx.config)
+        # Create database connection manager
+        db_config = DatabaseConfig(
+            host=cli_ctx.config.database.host,
+            port=cli_ctx.config.database.port,
+            database=cli_ctx.config.database.database,
+            user=cli_ctx.config.database.user,
+            password=cli_ctx.config.database.password
+        )
+        db_manager = DatabaseConnectionManager(db_config)
+        db_manager.initialize()
         
-        # Create version manager
-        version_manager = PolicyVersionManager(db_session)
-        
-        # Get policy version at time
-        version = version_manager.get_policy_at_time(policy_uuid, dt)
+        # Get database session
+        with db_manager.session_scope() as db_session:
+            # Create version manager
+            version_manager = PolicyVersionManager(db_session)
+            
+            # Get policy version at time
+            version = version_manager.get_policy_at_time(policy_uuid, dt)
         
         if version is None:
             click.echo(f"No policy version found for policy {policy_id} at time {timestamp}")
@@ -608,6 +631,9 @@ def version_at(ctx, policy_id: str, timestamp: str, format: str):
             click.echo(f"Changed By:    {version.changed_by}")
             click.echo(f"Changed At:    {version.changed_at}")
             click.echo(f"Reason:        {version.change_reason}")
+        
+        # Close connection manager
+        db_manager.close()
         
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
@@ -656,7 +682,7 @@ def compare_versions(ctx, version1: str, version2: str, format: str):
     """
     try:
         from uuid import UUID
-        from caracal.db.connection import get_db_session
+        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         from caracal.core.policy_versions import PolicyVersionManager
         
         # Get CLI context
@@ -670,14 +696,24 @@ def compare_versions(ctx, version1: str, version2: str, format: str):
             click.echo(f"Error: Invalid version ID format: {e}", err=True)
             sys.exit(1)
         
-        # Create database session
-        db_session = get_db_session(cli_ctx.config)
+        # Create database connection manager
+        db_config = DatabaseConfig(
+            host=cli_ctx.config.database.host,
+            port=cli_ctx.config.database.port,
+            database=cli_ctx.config.database.database,
+            user=cli_ctx.config.database.user,
+            password=cli_ctx.config.database.password
+        )
+        db_manager = DatabaseConnectionManager(db_config)
+        db_manager.initialize()
         
-        # Create version manager
-        version_manager = PolicyVersionManager(db_session)
-        
-        # Compare versions
-        diff = version_manager.compare_versions(version1_uuid, version2_uuid)
+        # Get database session
+        with db_manager.session_scope() as db_session:
+            # Create version manager
+            version_manager = PolicyVersionManager(db_session)
+            
+            # Compare versions
+            diff = version_manager.compare_versions(version1_uuid, version2_uuid)
         
         if format.lower() == 'json':
             # JSON output
@@ -725,6 +761,9 @@ def compare_versions(ctx, version1: str, version2: str, format: str):
                     click.echo(f"  {field}:")
                     click.echo(f"    Old: {old_val}")
                     click.echo(f"    New: {new_val}")
+        
+        # Close connection manager
+        db_manager.close()
         
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
