@@ -115,7 +115,8 @@ class BudgetPolicy(Base):
     
     # Budget configuration
     limit_amount = Column(Numeric(precision=20, scale=6), nullable=False)
-    time_window = Column(String(50), nullable=False)  # "daily", "weekly", "monthly"
+    time_window = Column(String(50), nullable=False)  # "hourly", "daily", "weekly", "monthly"
+    window_type = Column(String(20), nullable=False, default="calendar", server_default="calendar")  # "rolling" or "calendar" (v0.3)
     currency = Column(String(3), nullable=False, default="USD")
     
     # Delegation tracking
