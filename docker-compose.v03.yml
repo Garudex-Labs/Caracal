@@ -1,0 +1,48 @@
+# Docker Compose configuration for Caracal Core v0.3
+# Requirements: Deployment
+#
+# This compose file sets up the complete Caracal Core v0.3 stack:
+# - PostgreSQL database for persistent storage
+# - Redis cache for real-time metrics and spending cache
+# - Kafka cluster (3 brokers) for event streaming
+# - Zookeeper ensemble (3 nodes) for Kafka coordination
+# - Confluent Schema Registry for Avro schema management
+# - Caracal Gateway Proxy for network-enforced policy enforcement
+# - Caracal MCP Adapter for Model Context Protocol integration
+# - Caracal Event Consumers (LedgerWriter, MetricsAggregator, AuditLogger)
+#
+# Usage:
+#   # Start all services
+#   docker-compose -f docker-compose.v03.yml up -d
+#
+#   # View logs
+#   docker-compose -f docker-compose.v03.yml logs -f
+#   docker-compose -f docker-compose.v03.yml logs -f gateway
+#   docker-compose -f docker-compose.v03.yml logs -f ledger-writer
+#
+#   # Stop all services
+#   docker-compose -f docker-compose.v03.yml down
+#
+#   # Stop and remove volumes (WARNING: deletes all data)
+#   docker-compose -f docker-compose.v03.yml down -v
+#
+# Prerequisites:
+#   1. Create ./certs directory with TLS certificates
+#   2. Create ./kafka-certs directory with Kafka TLS certificates
+#   3. Create .env file with required environment variables (see .env.example)
+#   4. Optionally create ./config directory with custom configuration files
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================================================
+  
+  # PostgreSQL Database
+  # Provides persistent storage for agent identities, policies, ledger events,
+  # provisional charges, Merkle roots, policy versions, resource allowlists,
+  # audit logs, and snapshots
+  postgres:
+    image: postgres:14-alpine
+    container_name: caracal-postgres
