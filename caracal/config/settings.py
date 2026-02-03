@@ -887,6 +887,182 @@ def _validate_config(config: CaracalConfig) -> None:
             raise InvalidConfigurationError(
                 "merkle private_key_path is required when signing_backend is 'software'"
             )
+    
+    # Validate key rotation configuration
+    if config.merkle.key_rotation_enabled:
+        if config.merkle.key_rotation_days < 1:
+            raise InvalidConfigurationError(
+                f"merkle key_rotation_days must be at least 1, got {config.merkle.key_rotation_days}"
+            )
+    
+    # Validate Kafka configuration (v0.3)
+    if config.compatibility.enable_kafka:
+        if not config.kafka.brokers:
+            raise InvalidConfigurationError("kafka brokers list cannot be empty when Kafka is enabled")
+        
+        valid_security_protocols = ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
+        if config.kafka.security_protocol not in valid_security_protocols:
+            raise InvalidConfigurationError(
+                f"kafka security_protocol must be one of {valid_security_protocols}, "
+                f"got '{config.kafka.security_protocol}'"
+            )
+        
+        # Validate SASL configuration
+        if config.kafka.security_protocol in ["SASL_PLAINTEXT", "SASL_SSL"]:
+            valid_sasl_mechanisms = ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI"]
+            if config.kafka.sasl_mechanism not in valid_sasl_mechanisms:
+                raise InvalidConfigurationError(
+                    f"kafka sasl_mechanism must be one of {valid_sasl_mechanisms}, "
+                    f"got '{config.kafka.sasl_mechanism}'"
+                )
+            
+            if not config.kafka.sasl_username:
+                raise InvalidConfigurationError(
+                    "kafka sasl_username is required when using SASL authentication"
+                )
+            
+            if not config.kafka.sasl_password:
+                raise InvalidConfigurationError(
+                    "kafka sasl_password is required when using SASL authentication"
+                )
+        
+        # Validate SSL configuration
+        if config.kafka.security_protocol in ["SSL", "SASL_SSL"]:
+            if not config.kafka.ssl_ca_location:
+                raise InvalidConfigurationError(
+                    "kafka ssl_ca_location is required when using SSL/TLS"
+                )
+            
+            # Client certificate is optional for SSL, but if provided, key must also be provided
+            if config.kafka.ssl_cert_location and not config.kafka.ssl_key_location:
+                raise InvalidConfigurationError(
+                    "kafka ssl_key_location is required when ssl_cert_location is provided"
+                )
+            
+            if config.kafka.ssl_key_location and not config.kafka.ssl_cert_location:
+                raise InvalidConfigurationError(
+                    "kafka ssl_cert_location is required when ssl_key_location is provided"
+                )
+        
+        # Validate producer configuration
+        valid_acks = ["0", "1", "all", "-1"]
+        if config.kafka.producer.acks not in valid_acks:
+            raise InvalidConfigurationError(
+                f"kafka producer acks must be one of {valid_acks}, "
+                f"got '{config.kafka.producer.acks}'"
+            )
+        
+        if config.kafka.producer.retries < 0:
+            raise InvalidConfigurationError(
+                f"kafka producer retries must be non-negative, got {config.kafka.producer.retries}"
+            )
+        
+        if config.kafka.producer.max_in_flight_requests < 1:
+            raise InvalidConfigurationError(
+                f"kafka producer max_in_flight_requests must be at least 1, "
+                f"got {config.kafka.producer.max_in_flight_requests}"
+            )
+        
+        valid_compression_types = ["none", "gzip", "snappy", "lz4", "zstd"]
+        if config.kafka.producer.compression_type not in valid_compression_types:
+            raise InvalidConfigurationError(
+                f"kafka producer compression_type must be one of {valid_compression_types}, "
+                f"got '{config.kafka.producer.compression_type}'"
+            )
+        
+        # Validate consumer configuration
+        valid_auto_offset_reset = ["earliest", "latest", "none"]
+        if config.kafka.consumer.auto_offset_reset not in valid_auto_offset_reset:
+            raise InvalidConfigurationError(
+                f"kafka consumer auto_offset_reset must be one of {valid_auto_offset_reset}, "
+                f"got '{config.kafka.consumer.auto_offset_reset}'"
+            )
+        
+        # Enforce exactly-once semantics requirements
+        if config.kafka.processing.guarantee == "exactly_once":
+            if config.kafka.consumer.enable_auto_commit:
+                raise InvalidConfigurationError(
+                    "kafka consumer enable_auto_commit must be False for exactly-once semantics"
+                )
+            
+            if config.kafka.consumer.isolation_level != "read_committed":
+                raise InvalidConfigurationError(
+                    "kafka consumer isolation_level must be 'read_committed' for exactly-once semantics"
+                )
+            
+            if not config.kafka.producer.enable_idempotence:
+                raise InvalidConfigurationError(
+                    "kafka producer enable_idempotence must be True for exactly-once semantics"
+                )
+        
+        if config.kafka.consumer.max_poll_records < 1:
+            raise InvalidConfigurationError(
+                f"kafka consumer max_poll_records must be at least 1, "
+                f"got {config.kafka.consumer.max_poll_records}"
+            )
+        
+        if config.kafka.consumer.session_timeout_ms < 1000:
+            raise InvalidConfigurationError(
+                f"kafka consumer session_timeout_ms must be at least 1000, "
+                f"got {config.kafka.consumer.session_timeout_ms}"
+            )
+        
+        # Validate processing configuration
+        valid_guarantees = ["exactly_once", "at_least_once"]
+        if config.kafka.processing.guarantee not in valid_guarantees:
+            raise InvalidConfigurationError(
+                f"kafka processing guarantee must be one of {valid_guarantees}, "
+                f"got '{config.kafka.processing.guarantee}'"
+            )
+    
+    # Validate Redis configuration (v0.3)
+    if config.compatibility.enable_redis:
+        if not config.redis.host:
+            raise InvalidConfigurationError("redis host cannot be empty when Redis is enabled")
+        
+        if config.redis.port < 1 or config.redis.port > 65535:
+            raise InvalidConfigurationError(
+                f"redis port must be between 1 and 65535, got {config.redis.port}"
+            )
+        
+        if config.redis.db < 0:
+            raise InvalidConfigurationError(
+                f"redis db must be non-negative, got {config.redis.db}"
+            )
+        
+        # Validate SSL configuration
+        if config.redis.ssl:
+            if not config.redis.ssl_ca_certs:
+                raise InvalidConfigurationError(
+                    "redis ssl_ca_certs is required when SSL is enabled"
+                )
+            
+            # Client certificate is optional for SSL, but if provided, key must also be provided
+            if config.redis.ssl_certfile and not config.redis.ssl_keyfile:
+                raise InvalidConfigurationError(
+                    "redis ssl_keyfile is required when ssl_certfile is provided"
+                )
+            
+            if config.redis.ssl_keyfile and not config.redis.ssl_certfile:
+                raise InvalidConfigurationError(
+                    "redis ssl_certfile is required when ssl_keyfile is provided"
+                )
+        
+        # Validate cache TTL values
+        if config.redis.spending_cache_ttl < 1:
+            raise InvalidConfigurationError(
+                f"redis spending_cache_ttl must be at least 1, got {config.redis.spending_cache_ttl}"
+            )
+        
+        if config.redis.metrics_cache_ttl < 1:
+            raise InvalidConfigurationError(
+                f"redis metrics_cache_ttl must be at least 1, got {config.redis.metrics_cache_ttl}"
+            )
+        
+        if config.redis.allowlist_cache_ttl < 1:
+            raise InvalidConfigurationError(
+                f"redis allowlist_cache_ttl must be at least 1, got {config.redis.allowlist_cache_ttl}"
+            )
 
     
     # Validate compatibility configuration (v0.3)
