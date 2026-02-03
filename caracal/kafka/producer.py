@@ -205,8 +205,10 @@ class KafkaEventProducer:
     - Retry logic with exponential backoff
     - Partition key routing using agent_id for ordering
     - Idempotent delivery for exactly-once semantics
+    - Event batching for improved throughput (v0.3 optimization)
+    - Async publishing with callbacks (v0.3 optimization)
     
-    Requirements: 1.1, 1.2, 1.3, 1.4
+    Requirements: 1.1, 1.2, 1.3, 1.4, 23.1
     """
     
     # Topic names
@@ -218,23 +220,40 @@ class KafkaEventProducer:
     # Schema version
     SCHEMA_VERSION = 1
     
-    def __init__(self, config: KafkaConfig):
+    # Batching configuration (v0.3 optimization)
+    DEFAULT_BATCH_SIZE = 100  # Number of events to batch before flushing
+    DEFAULT_LINGER_MS = 10  # Max time to wait before flushing batch (milliseconds)
+    
+    def __init__(self, config: KafkaConfig, batch_size: int = DEFAULT_BATCH_SIZE, linger_ms: int = DEFAULT_LINGER_MS):
         """
         Initialize Kafka event producer.
         
         Args:
             config: KafkaConfig with broker and security settings
+            batch_size: Number of events to batch before flushing (default: 100)
+            linger_ms: Max time to wait before flushing batch in milliseconds (default: 10ms)
         """
         self.config = config
+        self.batch_size = batch_size
+        self.linger_ms = linger_ms
         self._producer = None
         self._schema_registry_client = None
         self._avro_serializers = {}
         self._string_serializer = StringSerializer('utf_8')
         self._initialized = False
         
+        # Batching state (v0.3 optimization)
+        self._pending_events = 0
+        self._last_flush_time = time.time()
+        
+        # Async callback tracking (v0.3 optimization)
+        self._pending_callbacks = {}
+        self._callback_lock = asyncio.Lock()
+        
         logger.info(
             f"Initializing KafkaEventProducer: brokers={config.brokers}, "
-            f"security_protocol={config.security_protocol}"
+            f"security_protocol={config.security_protocol}, "
+            f"batch_size={batch_size}, linger_ms={linger_ms}"
         )
     
     def _initialize(self):
