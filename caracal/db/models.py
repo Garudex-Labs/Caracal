@@ -423,3 +423,35 @@ class ResourceAllowlist(Base):
     def __repr__(self):
         return f"<ResourceAllowlist(allowlist_id={self.allowlist_id}, agent_id={self.agent_id}, pattern={self.resource_pattern[:50]})>"
 
+
+class LedgerSnapshot(Base):
+    """
+    Ledger snapshots for fast recovery.
+    
+    Stores point-in-time snapshots of ledger state including aggregated spending
+    per agent and current Merkle root. Enables fast recovery without replaying
+    all events from the beginning.
+    
+    Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
+    """
+    
+    __tablename__ = "ledger_snapshots"
+    
+    # Primary key
+    snapshot_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Snapshot metadata
+    snapshot_timestamp = Column(DateTime, nullable=False, index=True)
+    total_events = Column(BigInteger, nullable=False)
+    merkle_root = Column(String(64), nullable=False)  # Hex-encoded SHA-256 hash
+    
+    # Snapshot data (aggregated spending per agent)
+    snapshot_data = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    
+    # Creation timestamp
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    def __repr__(self):
+        return f"<LedgerSnapshot(snapshot_id={self.snapshot_id}, timestamp={self.snapshot_timestamp}, events={self.total_events})>"
+
+
