@@ -701,27 +701,6 @@ class KafkaEventProducer:
                     f"Failed to publish event to {topic} after {max_retries} retries: {e}"
                 ) from e
     
-    def _delivery_callback(self, err, msg):
-        """
-        Delivery callback for Kafka producer.
-        
-        Logs delivery success or failure.
-        
-        Args:
-            err: Error if delivery failed
-            msg: Message that was delivered
-        """
-        if err:
-            logger.error(
-                f"Message delivery failed: topic={msg.topic()}, "
-                f"partition={msg.partition()}, error={err}"
-            )
-        else:
-            logger.debug(
-                f"Message delivered: topic={msg.topic()}, "
-                f"partition={msg.partition()}, offset={msg.offset()}"
-            )
-    
     def _serialize_json(self, event: Any) -> bytes:
         """
         Serialize event to JSON bytes.
