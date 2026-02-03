@@ -116,7 +116,8 @@ class PolicyStore:
         limit_amount: Decimal,
         time_window: str = "daily",
         currency: str = "USD",
-        delegated_from_agent_id: Optional[str] = None
+        delegated_from_agent_id: Optional[str] = None,
+        validate_conflicts: bool = True
     ) -> BudgetPolicy:
         """
         Create a new budget policy.
@@ -127,6 +128,7 @@ class PolicyStore:
             time_window: Time window for budget (default: "daily")
             currency: Currency code (default: "USD")
             delegated_from_agent_id: Optional parent agent ID for delegation tracking
+            validate_conflicts: Whether to validate policy conflicts (default: True, v0.3)
             
         Returns:
             BudgetPolicy: The newly created policy
@@ -176,6 +178,30 @@ class PolicyStore:
                 f"Only 'daily' time window is supported in v0.1, got '{time_window}'"
             )
         
+        # Validate policy conflicts if requested (v0.3)
+        if validate_conflicts:
+            existing_policies = self.get_policies(agent_id)
+            conflicts = self._check_policy_conflicts(
+                existing_policies=existing_policies,
+                new_limit=limit_amount,
+                new_time_window=time_window,
+                new_currency=currency
+            )
+            
+            if conflicts:
+                # Log warnings for conflicts
+                for conflict in conflicts:
+                    logger.warning(
+                        f"Policy conflict detected for agent {agent_id}: {conflict}"
+                    )
+                
+                # For now, just warn - don't block policy creation
+                # In production, you might want to make this configurable
+                logger.info(
+                    f"Creating policy despite {len(conflicts)} potential conflicts "
+                    f"(conflicts: {', '.join(conflicts)})"
+                )
+        
         # Generate UUID v4 for policy ID
         policy_id = str(uuid.uuid4())
         
@@ -214,6 +240,76 @@ class PolicyStore:
         )
         
         return policy
+    
+    def _check_policy_conflicts(
+        self,
+        existing_policies: List[BudgetPolicy],
+        new_limit: Decimal,
+        new_time_window: str,
+        new_currency: str
+    ) -> List[str]:
+        """
+        Check for potential policy conflicts.
+        
+        Detects conflicts such as:
+        - Daily limit > monthly limit (shorter window has higher limit)
+        - Policies with different currencies
+        
+        Args:
+            existing_policies: List of existing policies for the agent
+            new_limit: Limit amount for the new policy
+            new_time_window: Time window for the new policy
+            new_currency: Currency for the new policy
+            
+        Returns:
+            List of conflict descriptions (empty if no conflicts)
+            
+        Requirements: 19.7
+        """
+        conflicts = []
+        
+        # Define time window hierarchy (shorter to longer)
+        window_hierarchy = {
+            'hourly': 1,
+            'daily': 24,
+            'weekly': 168,  # 24 * 7
+            'monthly': 720  # 24 * 30 (approximate)
+        }
+        
+        new_window_hours = window_hierarchy.get(new_time_window, 0)
+        
+        for existing_policy in existing_policies:
+            existing_limit = existing_policy.get_limit_decimal()
+            existing_window = existing_policy.time_window
+            existing_currency = existing_policy.currency
+            existing_window_hours = window_hierarchy.get(existing_window, 0)
+            
+            # Check currency mismatch
+            if existing_currency != new_currency:
+                conflicts.append(
+                    f"Currency mismatch: existing policy {existing_policy.policy_id} uses {existing_currency}, "
+                    f"new policy uses {new_currency}"
+                )
+            
+            # Check for illogical limit relationships
+            # Shorter window should have lower or equal limit than longer window
+            if new_window_hours > 0 and existing_window_hours > 0:
+                if new_window_hours < existing_window_hours:
+                    # New policy has shorter window
+                    if new_limit > existing_limit:
+                        conflicts.append(
+                            f"Shorter window has higher limit: new {new_time_window} policy limit {new_limit} > "
+                            f"existing {existing_window} policy {existing_policy.policy_id} limit {existing_limit}"
+                        )
+                elif new_window_hours > existing_window_hours:
+                    # New policy has longer window
+                    if new_limit < existing_limit:
+                        conflicts.append(
+                            f"Longer window has lower limit: new {new_time_window} policy limit {new_limit} < "
+                            f"existing {existing_window} policy {existing_policy.policy_id} limit {existing_limit}"
+                        )
+        
+        return conflicts
 
     def get_policies(self, agent_id: str) -> List[BudgetPolicy]:
         """
