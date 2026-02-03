@@ -153,6 +153,75 @@ class ASEConfig:
 
 
 @dataclass
+class KafkaProducerConfig:
+    """Kafka producer configuration."""
+    
+    acks: str = "all"  # Wait for all replicas
+    retries: int = 3
+    max_in_flight_requests: int = 5
+    compression_type: str = "snappy"
+    enable_idempotence: bool = True  # Required for exactly-once
+    transactional_id_prefix: str = "caracal-producer"  # Required for transactions
+
+
+@dataclass
+class KafkaConsumerConfig:
+    """Kafka consumer configuration."""
+    
+    auto_offset_reset: str = "earliest"
+    enable_auto_commit: bool = False  # MUST be False for exactly-once
+    isolation_level: str = "read_committed"  # Read only committed messages (EOS)
+    max_poll_records: int = 500
+    session_timeout_ms: int = 30000
+    enable_idempotence: bool = True  # Required for exactly-once
+    transactional_id_prefix: str = "caracal-consumer"  # Required for transactions
+
+
+@dataclass
+class KafkaProcessingConfig:
+    """Kafka processing configuration."""
+    
+    guarantee: str = "exactly_once"  # or at_least_once
+    enable_transactions: bool = True  # Enable Kafka transactions for EOS
+    idempotency_check: bool = True  # Enable idempotency checks (fallback for at_least_once)
+
+
+@dataclass
+class KafkaConfig:
+    """Kafka configuration for v0.3."""
+    
+    brokers: list = field(default_factory=lambda: ["localhost:9092"])
+    security_protocol: str = "PLAINTEXT"  # PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
+    sasl_mechanism: str = "SCRAM-SHA-512"  # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI
+    sasl_username: str = ""
+    sasl_password: str = ""
+    ssl_ca_location: str = ""  # Path to CA certificate
+    ssl_cert_location: str = ""  # Path to client certificate
+    ssl_key_location: str = ""  # Path to client private key
+    ssl_key_password: str = ""  # Password for encrypted private key
+    producer: KafkaProducerConfig = field(default_factory=KafkaProducerConfig)
+    consumer: KafkaConsumerConfig = field(default_factory=KafkaConsumerConfig)
+    processing: KafkaProcessingConfig = field(default_factory=KafkaProcessingConfig)
+
+
+@dataclass
+class RedisConfig:
+    """Redis configuration for v0.3."""
+    
+    host: str = "localhost"
+    port: int = 6379
+    password: str = ""
+    db: int = 0
+    ssl: bool = False
+    ssl_ca_certs: str = ""  # Path to CA certificate for TLS
+    ssl_certfile: str = ""  # Path to client certificate for TLS
+    ssl_keyfile: str = ""  # Path to client private key for TLS
+    spending_cache_ttl: int = 86400  # 24 hours
+    metrics_cache_ttl: int = 3600  # 1 hour
+    allowlist_cache_ttl: int = 60  # 1 minute
+
+
+@dataclass
 class MerkleConfig:
     """Merkle tree configuration for v0.3."""
     
@@ -162,6 +231,8 @@ class MerkleConfig:
     signing_backend: str = "software"  # "software" (default) or "hsm" (Enterprise only)
     private_key_path: str = ""  # Path to private key for software signing
     key_encryption_passphrase: str = ""  # Passphrase for encrypted key (from env var)
+    key_rotation_enabled: bool = False  # Enable automatic key rotation
+    key_rotation_days: int = 90  # Rotate keys every 90 days
     # HSM configuration (Enterprise only, ignored if signing_backend=software)
     hsm_config: dict = field(default_factory=dict)
 
@@ -218,6 +289,8 @@ class CaracalConfig:
     policy_cache: PolicyCacheConfig = field(default_factory=PolicyCacheConfig)
     mcp_adapter: MCPAdapterConfig = field(default_factory=MCPAdapterConfig)
     ase: ASEConfig = field(default_factory=ASEConfig)
+    kafka: KafkaConfig = field(default_factory=KafkaConfig)
+    redis: RedisConfig = field(default_factory=RedisConfig)
     merkle: MerkleConfig = field(default_factory=MerkleConfig)
     compatibility: CompatibilityConfig = field(default_factory=CompatibilityConfig)
 
@@ -492,7 +565,71 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         signing_backend=merkle_data.get('signing_backend', default_config.merkle.signing_backend),
         private_key_path=os.path.expanduser(merkle_data.get('private_key_path', default_config.merkle.private_key_path)),
         key_encryption_passphrase=merkle_data.get('key_encryption_passphrase', default_config.merkle.key_encryption_passphrase),
+        key_rotation_enabled=merkle_data.get('key_rotation_enabled', default_config.merkle.key_rotation_enabled),
+        key_rotation_days=merkle_data.get('key_rotation_days', default_config.merkle.key_rotation_days),
         hsm_config=merkle_data.get('hsm_config', default_config.merkle.hsm_config),
+    )
+    
+    # Parse Kafka configuration (optional, for v0.3)
+    kafka_data = config_data.get('kafka', {})
+    kafka_producer_data = kafka_data.get('producer', {})
+    kafka_consumer_data = kafka_data.get('consumer', {})
+    kafka_processing_data = kafka_data.get('processing', {})
+    
+    kafka_producer = KafkaProducerConfig(
+        acks=kafka_producer_data.get('acks', default_config.kafka.producer.acks),
+        retries=kafka_producer_data.get('retries', default_config.kafka.producer.retries),
+        max_in_flight_requests=kafka_producer_data.get('max_in_flight_requests', default_config.kafka.producer.max_in_flight_requests),
+        compression_type=kafka_producer_data.get('compression_type', default_config.kafka.producer.compression_type),
+        enable_idempotence=kafka_producer_data.get('enable_idempotence', default_config.kafka.producer.enable_idempotence),
+        transactional_id_prefix=kafka_producer_data.get('transactional_id_prefix', default_config.kafka.producer.transactional_id_prefix),
+    )
+    
+    kafka_consumer = KafkaConsumerConfig(
+        auto_offset_reset=kafka_consumer_data.get('auto_offset_reset', default_config.kafka.consumer.auto_offset_reset),
+        enable_auto_commit=kafka_consumer_data.get('enable_auto_commit', default_config.kafka.consumer.enable_auto_commit),
+        isolation_level=kafka_consumer_data.get('isolation_level', default_config.kafka.consumer.isolation_level),
+        max_poll_records=kafka_consumer_data.get('max_poll_records', default_config.kafka.consumer.max_poll_records),
+        session_timeout_ms=kafka_consumer_data.get('session_timeout_ms', default_config.kafka.consumer.session_timeout_ms),
+        enable_idempotence=kafka_consumer_data.get('enable_idempotence', default_config.kafka.consumer.enable_idempotence),
+        transactional_id_prefix=kafka_consumer_data.get('transactional_id_prefix', default_config.kafka.consumer.transactional_id_prefix),
+    )
+    
+    kafka_processing = KafkaProcessingConfig(
+        guarantee=kafka_processing_data.get('guarantee', default_config.kafka.processing.guarantee),
+        enable_transactions=kafka_processing_data.get('enable_transactions', default_config.kafka.processing.enable_transactions),
+        idempotency_check=kafka_processing_data.get('idempotency_check', default_config.kafka.processing.idempotency_check),
+    )
+    
+    kafka = KafkaConfig(
+        brokers=kafka_data.get('brokers', default_config.kafka.brokers),
+        security_protocol=kafka_data.get('security_protocol', default_config.kafka.security_protocol),
+        sasl_mechanism=kafka_data.get('sasl_mechanism', default_config.kafka.sasl_mechanism),
+        sasl_username=kafka_data.get('sasl_username', default_config.kafka.sasl_username),
+        sasl_password=kafka_data.get('sasl_password', default_config.kafka.sasl_password),
+        ssl_ca_location=os.path.expanduser(kafka_data.get('ssl_ca_location', default_config.kafka.ssl_ca_location)),
+        ssl_cert_location=os.path.expanduser(kafka_data.get('ssl_cert_location', default_config.kafka.ssl_cert_location)),
+        ssl_key_location=os.path.expanduser(kafka_data.get('ssl_key_location', default_config.kafka.ssl_key_location)),
+        ssl_key_password=kafka_data.get('ssl_key_password', default_config.kafka.ssl_key_password),
+        producer=kafka_producer,
+        consumer=kafka_consumer,
+        processing=kafka_processing,
+    )
+    
+    # Parse Redis configuration (optional, for v0.3)
+    redis_data = config_data.get('redis', {})
+    redis = RedisConfig(
+        host=redis_data.get('host', default_config.redis.host),
+        port=redis_data.get('port', default_config.redis.port),
+        password=redis_data.get('password', default_config.redis.password),
+        db=redis_data.get('db', default_config.redis.db),
+        ssl=redis_data.get('ssl', default_config.redis.ssl),
+        ssl_ca_certs=os.path.expanduser(redis_data.get('ssl_ca_certs', default_config.redis.ssl_ca_certs)),
+        ssl_certfile=os.path.expanduser(redis_data.get('ssl_certfile', default_config.redis.ssl_certfile)),
+        ssl_keyfile=os.path.expanduser(redis_data.get('ssl_keyfile', default_config.redis.ssl_keyfile)),
+        spending_cache_ttl=redis_data.get('spending_cache_ttl', default_config.redis.spending_cache_ttl),
+        metrics_cache_ttl=redis_data.get('metrics_cache_ttl', default_config.redis.metrics_cache_ttl),
+        allowlist_cache_ttl=redis_data.get('allowlist_cache_ttl', default_config.redis.allowlist_cache_ttl),
     )
     
     # Parse compatibility configuration (optional, for v0.2 compatibility)
