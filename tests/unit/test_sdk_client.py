@@ -18,27 +18,11 @@ from caracal.sdk.context import BudgetCheckContext
 class TestCaracalClient:
     """Test CaracalClient class."""
 
-    def test_client_initialization_with_config(self, temp_dir, sample_pricebook_path):
+    def test_client_initialization_with_config(self, temp_dir, sample_pricebook_path, make_config_yaml):
         """Test initializing client with configuration file."""
-        # Create config file
+        # Create config file using helper that includes merkle settings
         config_path = temp_dir / "config.yaml"
-        config_content = f"""
-storage:
-  agent_registry: {temp_dir}/agents.json
-  policy_store: {temp_dir}/policies.json
-  ledger: {temp_dir}/ledger.jsonl
-  pricebook: {sample_pricebook_path}
-  backup_dir: {temp_dir}/backups
-  backup_count: 3
-
-defaults:
-  currency: USD
-  time_window: daily
-
-logging:
-  level: INFO
-  file: {temp_dir}/caracal.log
-"""
+        config_content = make_config_yaml(pricebook_path=sample_pricebook_path)
         config_path.write_text(config_content)
         
         # Initialize client

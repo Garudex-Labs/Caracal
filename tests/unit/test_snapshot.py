@@ -47,6 +47,7 @@ def sample_events(db_session, sample_agent):
     events = []
     for i in range(10):
         event = LedgerEvent(
+            event_id=i + 1,  # Explicit event_id for SQLite compatibility
             agent_id=sample_agent.agent_id,
             timestamp=datetime.utcnow() - timedelta(hours=10-i),
             resource_type="test.resource",
