@@ -324,3 +324,58 @@ class MerkleRoot(Base):
     def __repr__(self):
         return f"<MerkleRoot(root_id={self.root_id}, batch_id={self.batch_id}, events={self.first_event_id}-{self.last_event_id})>"
 
+
+class PolicyVersion(Base):
+    """
+    Policy version history for audit trails.
+    
+    Stores immutable snapshots of policy changes, enabling complete audit trails
+    of who changed what and when. Each policy modification creates a new version record.
+    
+    Requirements: 5.2, 5.3, 6.1, 6.2, 6.3, 6.4
+    """
+    
+    __tablename__ = "policy_versions"
+    
+    # Primary key
+    version_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Foreign key to policy
+    policy_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("budget_policies.policy_id"),
+        nullable=False,
+        index=True,
+    )
+    
+    # Version tracking
+    version_number = Column(BigInteger, nullable=False)
+    
+    # Policy snapshot (all fields from BudgetPolicy)
+    agent_id = Column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    limit_amount = Column(Numeric(precision=20, scale=6), nullable=False)
+    time_window = Column(String(50), nullable=False)
+    window_type = Column(String(50), nullable=True)  # "rolling" or "calendar" (v0.3)
+    currency = Column(String(3), nullable=False, default="USD")
+    active = Column(Boolean, nullable=False)
+    delegated_from_agent_id = Column(PG_UUID(as_uuid=True), nullable=True)
+    
+    # Change tracking
+    change_type = Column(String(50), nullable=False)  # "created", "modified", "deactivated"
+    changed_by = Column(String(255), nullable=False)  # User/system identifier
+    changed_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    change_reason = Column(String(1000), nullable=False)  # Required explanation
+    
+    # Relationships
+    policy = relationship("BudgetPolicy", backref="versions")
+    
+    # Composite indexes for common queries
+    __table_args__ = (
+        Index("ix_policy_versions_policy_version", "policy_id", "version_number", unique=True),
+        Index("ix_policy_versions_agent_changed", "agent_id", "changed_at"),
+        Index("ix_policy_versions_type_changed", "change_type", "changed_at"),
+    )
+    
+    def __repr__(self):
+        return f"<PolicyVersion(version_id={self.version_id}, policy_id={self.policy_id}, version={self.version_number}, change_type={self.change_type})>"
+
