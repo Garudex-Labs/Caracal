@@ -111,7 +111,8 @@ class GatewayProxy:
         replay_protection: Optional[ReplayProtection] = None,
         policy_cache: Optional[PolicyCache] = None,
         db_connection_manager: Optional[Any] = None,
-        kafka_producer: Optional[KafkaEventProducer] = None
+        kafka_producer: Optional[KafkaEventProducer] = None,
+        allowlist_manager: Optional[Any] = None
     ):
         """
         Initialize Gateway Proxy.
@@ -125,6 +126,7 @@ class GatewayProxy:
             policy_cache: Optional PolicyCache for degraded mode operation
             db_connection_manager: Optional DatabaseConnectionManager for health checks
             kafka_producer: Optional KafkaEventProducer for v0.3 event publishing
+            allowlist_manager: Optional AllowlistManager for resource access control (v0.3)
         """
         self.config = config
         self.authenticator = authenticator
@@ -133,6 +135,7 @@ class GatewayProxy:
         self.replay_protection = replay_protection
         self.db_connection_manager = db_connection_manager
         self.kafka_producer = kafka_producer
+        self.allowlist_manager = allowlist_manager
         
         # Initialize policy cache if enabled and not provided
         if config.enable_policy_cache and policy_cache is None:
@@ -171,6 +174,8 @@ class GatewayProxy:
         self._auth_failures = 0
         self._replay_blocks = 0
         self._degraded_mode_count = 0
+        self._allowlist_blocks = 0
+        self._allowlist_allows = 0
         
         logger.info(
             f"Initialized GatewayProxy with auth_mode={config.auth_mode}, "
@@ -277,6 +282,8 @@ class GatewayProxy:
                 "auth_failures": self._auth_failures,
                 "replay_blocks": self._replay_blocks,
                 "degraded_mode_requests": self._degraded_mode_count,
+                "allowlist_blocks": self._allowlist_blocks,
+                "allowlist_allows": self._allowlist_allows,
             }
             
             # Add replay protection stats if available
@@ -442,6 +449,60 @@ class GatewayProxy:
                     return JSONResponse(
                         status_code=status.HTTP_403_FORBIDDEN,
                         content=error_response.to_dict()
+                    )
+            
+            # 2.5. Check resource allowlist (v0.3)
+            # Extract target URL for allowlist check
+            target_url = request.headers.get("X-Caracal-Target-URL")
+            
+            if self.allowlist_manager and target_url:
+                try:
+                    allowlist_decision = self.allowlist_manager.check_resource(
+                        agent_id=agent.agent_id,
+                        resource_url=target_url
+                    )
+                    
+                    if not allowlist_decision.allowed:
+                        self._allowlist_blocks += 1
+                        
+                        logger.warning(
+                            f"Resource {target_url} denied by allowlist for agent {agent.agent_id}: "
+                            f"{allowlist_decision.reason}"
+                        )
+                        
+                        # Record request metric
+                        if metrics:
+                            duration = time.time() - start_time
+                            metrics.record_gateway_request(
+                                method=request.method,
+                                status_code=403,
+                                auth_method=auth_result.method.value,
+                                duration_seconds=duration
+                            )
+                        
+                        return JSONResponse(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            content={
+                                "error": "resource_not_allowed",
+                                "message": allowlist_decision.reason,
+                                "resource": target_url
+                            }
+                        )
+                    
+                    self._allowlist_allows += 1
+                    
+                    logger.info(
+                        f"Resource {target_url} allowed by allowlist for agent {agent.agent_id}: "
+                        f"{allowlist_decision.reason}"
+                    )
+                    
+                except Exception as allowlist_error:
+                    # Log error but don't fail the request if allowlist check fails
+                    # This ensures backward compatibility and prevents allowlist issues
+                    # from blocking legitimate requests
+                    logger.error(
+                        f"Allowlist check failed for agent {agent.agent_id}, allowing request: {allowlist_error}",
+                        exc_info=True
                     )
             
             # 3. Evaluate budget policy
