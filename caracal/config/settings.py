@@ -662,6 +662,8 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         policy_cache=policy_cache,
         mcp_adapter=mcp_adapter,
         ase=ase,
+        kafka=kafka,
+        redis=redis,
         merkle=merkle,
         compatibility=compatibility,
     )
