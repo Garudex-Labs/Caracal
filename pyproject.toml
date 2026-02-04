@@ -46,6 +46,8 @@ dependencies = [
     "kafka-python>=2.0.2",
     "confluent-kafka[avro]>=2.3.0",
     "redis>=5.0.0",
+    "rich>=13.0.0",
+    "prompt_toolkit>=3.0.0",
 ]
 
 [project.urls]
@@ -65,6 +67,7 @@ dev = [
 
 [project.scripts]
 caracal = "caracal.cli.main:cli"
+caracal-flow = "caracal.flow.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
