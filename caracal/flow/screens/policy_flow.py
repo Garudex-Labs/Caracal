@@ -74,7 +74,7 @@ def _create_policy(console: Console, state: Optional[FlowState] = None) -> None:
         
         config = load_config()
         registry = get_agent_registry(config)
-        agents = registry.list_all()
+        agents = registry.list_agents()
         
         if not agents:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No agents registered.[/]")
@@ -163,7 +163,7 @@ def _list_policies(console: Console) -> None:
         
         config = load_config()
         store = get_policy_store(config)
-        policies = store.list_all()
+        policies = store.list_all_policies()
         
         if not policies:
             console.print(f"  [{Colors.DIM}]No policies created yet.[/]")
@@ -213,7 +213,7 @@ def _policy_status(console: Console) -> None:
         
         config = load_config()
         registry = get_agent_registry(config)
-        agents = registry.list_all()
+        agents = registry.list_agents()
         
         if not agents:
             console.print(f"  [{Colors.DIM}]No agents registered.[/]")
@@ -284,7 +284,7 @@ def _policy_history(console: Console) -> None:
         
         config = load_config()
         store = get_policy_store(config)
-        policies = store.list_all()
+        policies = store.list_all_policies()
         
         if not policies:
             console.print(f"  [{Colors.DIM}]No policies exist.[/]")

@@ -158,7 +158,7 @@ def _spending_summary(console: Console) -> None:
         registry = get_agent_registry(config)
         
         # Get all agents
-        agents = registry.list_all()
+        agents = registry.list_agents()
         
         if not agents:
             console.print(f"  [{Colors.DIM}]No agents registered.[/]")
@@ -220,7 +220,7 @@ def _delegation_chain(console: Console) -> None:
         
         config = load_config()
         registry = get_agent_registry(config)
-        agents = registry.list_all()
+        agents = registry.list_agents()
         
         if not agents:
             console.print(f"  [{Colors.DIM}]No agents registered.[/]")
@@ -229,7 +229,7 @@ def _delegation_chain(console: Console) -> None:
         items = [(a.agent_id, a.name) for a in agents]
         agent_id = prompt.uuid("Agent ID (Tab for suggestions)", items)
         
-        agent = registry.get(agent_id)
+        agent = registry.get_agent(agent_id)
         if not agent:
             console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Agent not found[/]")
             return
@@ -241,8 +241,8 @@ def _delegation_chain(console: Console) -> None:
         # Find ancestors
         ancestors = []
         current = agent
-        while current.parent_id:
-            parent = registry.get(current.parent_id)
+        while current.parent_agent_id:
+            parent = registry.get_agent(current.parent_agent_id)
             if parent:
                 ancestors.insert(0, parent)
                 current = parent

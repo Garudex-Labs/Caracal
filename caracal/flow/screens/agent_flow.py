@@ -117,7 +117,7 @@ def _register_agent(console: Console, state: Optional[FlowState] = None) -> None
         config = load_config()
         registry = get_agent_registry(config)
         
-        agent = registry.register(name=name, owner=owner, metadata=metadata if metadata else None)
+        agent = registry.register_agent(name=name, owner=owner, metadata=metadata if metadata else None)
         
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Agent registered successfully![/]")
         console.print()
@@ -155,7 +155,7 @@ def _list_agents(console: Console) -> None:
         
         config = load_config()
         registry = get_agent_registry(config)
-        agents = registry.list_all()
+        agents = registry.list_agents()
         
         if not agents:
             console.print(f"  [{Colors.DIM}]No agents registered yet.[/]")
@@ -173,7 +173,7 @@ def _list_agents(console: Console) -> None:
                 agent.agent_id[:8] + "...",
                 agent.name,
                 agent.owner,
-                agent.parent_id[:8] + "..." if agent.parent_id else "-",
+                agent.parent_agent_id[:8] + "..." if agent.parent_agent_id else "-",
             )
         
         console.print(table)
@@ -204,7 +204,7 @@ def _get_agent(console: Console) -> None:
         
         config = load_config()
         registry = get_agent_registry(config)
-        agents = registry.list_all()
+        agents = registry.list_agents()
         
         if not agents:
             console.print(f"  [{Colors.DIM}]No agents registered yet.[/]")
@@ -215,7 +215,7 @@ def _get_agent(console: Console) -> None:
         
         agent_id = prompt.uuid("Enter agent ID (Tab for suggestions)", items)
         
-        agent = registry.get(agent_id)
+        agent = registry.get_agent(agent_id)
         if not agent:
             console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Agent not found[/]")
             return
@@ -226,7 +226,7 @@ def _get_agent(console: Console) -> None:
         console.print(f"    ID: [{Colors.PRIMARY}]{agent.agent_id}[/]")
         console.print(f"    Name: [{Colors.NEUTRAL}]{agent.name}[/]")
         console.print(f"    Owner: [{Colors.NEUTRAL}]{agent.owner}[/]")
-        console.print(f"    Parent: [{Colors.DIM}]{agent.parent_id or 'None'}[/]")
+        console.print(f"    Parent: [{Colors.DIM}]{agent.parent_agent_id or 'None'}[/]")
         console.print(f"    Created: [{Colors.DIM}]{agent.created_at}[/]")
         
         if agent.metadata:
@@ -258,7 +258,7 @@ def _create_child_agent(console: Console, state: Optional[FlowState] = None) -> 
         
         config = load_config()
         registry = get_agent_registry(config)
-        agents = registry.list_all()
+        agents = registry.list_agents()
         
         if not agents:
             console.print(f"  [{Colors.DIM}]No agents exist to be a parent.[/]")
@@ -292,11 +292,10 @@ def _create_child_agent(console: Console, state: Optional[FlowState] = None) -> 
         console.print()
         console.print(f"  [{Colors.INFO}]Creating child agent...[/]")
         
-        agent = registry.register(
+        agent = registry.register_agent(
             name=name, 
             owner=owner, 
-            parent_id=parent_id,
-            delegated_budget=budget,
+            parent_agent_id=parent_id,
         )
         
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Child agent created![/]")
