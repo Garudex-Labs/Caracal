@@ -141,6 +141,24 @@ def _generate_token(console: Console) -> None:
                 subtitle="Store securely! Won't be shown again.",
                 border_style=Colors.SUCCESS
             ))
+            
+            # Print plain version for easier selection
+            console.print()
+            console.print(f"[{Colors.DIM}]Raw Token (for manual copy):[/]")
+            console.print(token, style=Colors.NEUTRAL, highlight=False)
+            
+            # Try to copy to clipboard
+            try:
+                import pyperclip
+                pyperclip.copy(token)
+                console.print()
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Auto-copied to clipboard![/]")
+            except ImportError:
+                # Fallback if library missing
+                pass
+            except Exception:
+                # Silently fail clipboard operations (headless, no display, etc)
+                pass
         else:
             console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to generate token.[/]")
             
@@ -183,6 +201,21 @@ def _generate_token(console: Console) -> None:
                             subtitle="Store securely! Won't be shown again.",
                             border_style=Colors.SUCCESS
                         ))
+                        
+                        # Print plain version
+                        console.print()
+                        console.print(f"[{Colors.DIM}]Raw Token (for manual copy):[/]")
+                        console.print(token, style=Colors.NEUTRAL, highlight=False)
+                        
+                        # Copy to clipboard
+                        try:
+                            import pyperclip
+                            pyperclip.copy(token)
+                            console.print()
+                            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Auto-copied to clipboard![/]")
+                        except:
+                            pass
+                            
                         return
                         
                 except Exception as key_err:
