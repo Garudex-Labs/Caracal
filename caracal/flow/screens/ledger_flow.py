@@ -63,21 +63,37 @@ def _query_events(console: Console) -> None:
     ))
     console.print()
     
-    # Build filters
-    console.print(f"  [{Colors.INFO}]Optional Filters (press Enter to skip):[/]")
-    console.print()
-    
-    agent_id = prompt.text("Agent ID", required=False)
-    resource = prompt.text("Resource type", required=False)
-    start_date = prompt.text("Start date (YYYY-MM-DD)", required=False)
-    end_date = prompt.text("End date (YYYY-MM-DD)", required=False)
+    # Initialize variables for error handling
+    agent_id = None
+    resource = None
+    start_date = None
+    end_date = None
     
     try:
         from caracal.cli.ledger import get_ledger_query
+        from caracal.cli.agent import get_agent_registry
         from caracal.config import load_config
         
         config = load_config()
         query = get_ledger_query(config)
+        registry = get_agent_registry(config)
+        
+        # Get agents for autocomplete
+        agents = registry.list_agents()
+        items = [(a.agent_id, a.name) for a in agents] if agents else []
+        
+        # Build filters
+        console.print(f"  [{Colors.INFO}]Optional Filters (press Enter to skip):[/]")
+        console.print()
+        
+        if items:
+            agent_id = prompt.uuid("Agent ID (Tab for suggestions)", items, required=False)
+        else:
+            agent_id = prompt.text("Agent ID", required=False)
+            
+        resource = prompt.text("Resource type", required=False)
+        start_date = prompt.text("Start date (YYYY-MM-DD)", required=False)
+        end_date = prompt.text("End date (YYYY-MM-DD)", required=False)
         
         # Build filters
         filters = {}
@@ -90,7 +106,7 @@ def _query_events(console: Console) -> None:
         if end_date:
             filters["end_time"] = end_date
         
-        events = query.query_events(**filters)
+        events = query.get_events(**filters)
         
         console.print()
         
