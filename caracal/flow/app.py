@@ -205,7 +205,10 @@ class FlowApp:
             
             config = load_config()
             
-            if config.database and config.database.enabled:
+            # Check if database is configured (non-default)
+            is_configured = config.database and (config.database.password or config.database.host != "localhost")
+            
+            if is_configured:
                 self.console.print(f"  [{Colors.INFO}]Database Type:[/] PostgreSQL")
                 self.console.print(f"  [{Colors.INFO}]Host:[/] {config.database.host}:{config.database.port}")
                 self.console.print(f"  [{Colors.INFO}]Database:[/] {config.database.database}")

@@ -188,8 +188,29 @@ def _spending_summary(console: Console) -> None:
             items = [(a.agent_id, a.name) for a in agents]
             agent_filter = prompt.uuid("Agent ID", items)
         
-        # Get summary
-        summary = query.get_spending_summary(agent_id=agent_filter)
+        # Get events and aggregate locally (since get_spending_summary doesn't exist)
+        events = query.get_events(agent_id=agent_filter) if agent_filter else query.get_events()
+        
+        # Aggregate spending
+        agg = {}
+        from decimal import Decimal
+        
+        for event in events:
+            aid = event.agent_id
+            try:
+                cost = Decimal(event.cost)
+                if aid not in agg:
+                    agg[aid] = {"total_spent": Decimal(0), "event_count": 0}
+                agg[aid]["total_spent"] += cost
+                agg[aid]["event_count"] += 1
+            except (ValueError, TypeError):
+                continue
+                
+        # Convert to list for display
+        summary = [
+            {"agent_id": k, "total_spent": v["total_spent"], "event_count": v["event_count"]}
+            for k, v in agg.items()
+        ]
         
         console.print()
         
@@ -276,7 +297,7 @@ def _delegation_chain(console: Console) -> None:
         indent += 1
         
         # Find children
-        children = [a for a in agents if a.parent_id == agent_id]
+        children = [a for a in agents if a.parent_agent_id == agent_id]
         for child in children:
             console.print(f"  {'  ' * indent}[{Colors.DIM}]↓[/] [{Colors.NEUTRAL}]{child.name}[/] [{Colors.DIM}]({child.agent_id[:8]}...)[/]")
         
