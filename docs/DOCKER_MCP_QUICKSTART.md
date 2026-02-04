@@ -19,7 +19,7 @@ docker build -f Dockerfile.mcp -t caracal-mcp-adapter:latest .
 For a specific version:
 
 ```bash
-docker build -f Dockerfile.mcp -t caracal-mcp-adapter:0.3.0 .
+docker build -f Dockerfile.mcp -t caracal-mcp-adapter:0.4.0 .
 ```
 
 ## Running the Container
@@ -122,7 +122,7 @@ Expected response when healthy:
 {
   "status": "healthy",
   "service": "caracal-mcp-adapter",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "mcp_servers": {
     "server1": "healthy",
     "server2": "healthy",

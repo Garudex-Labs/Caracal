@@ -217,6 +217,6 @@ twine upload dist/*
 
 - All scripts should be run from the Caracal root directory
 - Scripts use the VERSION file as the single source of truth
-- Docker images are tagged with `v` prefix (e.g., `v0.3.0`)
-- Helm chart versions do not use `v` prefix (e.g., `0.3.0`)
-- Git tags use `v` prefix (e.g., `v0.3.0`)
+- Docker images are tagged with `v` prefix (e.g., `v0.4.0`)
+- Helm chart versions do not use `v` prefix (e.g., `0.4.0`)
+- Git tags use `v` prefix (e.g., `v0.4.0`)

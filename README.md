@@ -41,7 +41,7 @@ caracal gateway start
 
 ## Architecture
 
-Caracal Core v0.3.0 follows a modular design:
+Caracal Core v0.4.0 follows a modular design:
 
 *   **Gateway Proxy**: High-performance HTTP/gRPC reverse proxy for interception.
 *   **Policy Engine**: Stateless decision engine for real-time budget enforcement.
