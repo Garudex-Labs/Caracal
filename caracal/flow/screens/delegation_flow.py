@@ -86,7 +86,7 @@ def _generate_token(console: Console) -> None:
     console.print()
     
     try:
-        registry, _, delegation_manager = _get_managers()
+        registry, policy_store, delegation_manager = _get_managers()
         
         # Get agents for selection
         agents = registry.list_agents()
@@ -114,7 +114,12 @@ def _generate_token(console: Console) -> None:
         limit = prompt.number("Spending Limit", min_value=0.0)
         currency = prompt.text("Currency", default="USD")
         
-        # Expiration
+        # Spending Limit
+        limit = prompt.number("Spending Limit", min_value=0.0)
+        currency = prompt.text("Currency", default="USD")
+        time_window = prompt.select("Time Window for Policy", ["daily", "weekly", "monthly", "total"], default="daily")
+        
+        # Expiration for Token
         expiration = prompt.number("Expiration (seconds)", default=86400, min_value=60)
         
         # Operations
@@ -134,6 +139,20 @@ def _generate_token(console: Console) -> None:
         )
         
         if token:
+            # Also create policy for persistence
+            try:
+                policy_store.create_policy(
+                    agent_id=child_id,
+                    limit_amount=Decimal(str(limit)),
+                    time_window=time_window,
+                    currency=currency,
+                    delegated_from_agent_id=parent_id
+                )
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Delegated policy created![/]")
+            except Exception as p_err:
+                logger.error(f"Failed to create policy: {p_err}")
+                console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Warning: Policy creation failed: {p_err}[/]")
+
             console.print()
             console.print(Panel(
                 Text(token, style=Colors.SUCCESS),
@@ -194,6 +213,20 @@ def _generate_token(console: Console) -> None:
                     )
                     
                     if token:
+                        # Also create policy for persistence
+                        try:
+                            policy_store.create_policy(
+                                agent_id=child_id,
+                                limit_amount=Decimal(str(limit)),
+                                time_window=time_window,
+                                currency=currency,
+                                delegated_from_agent_id=parent_id
+                            )
+                            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Delegated policy created![/]")
+                        except Exception as p_err:
+                            logger.error(f"Failed to create policy: {p_err}")
+                            console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Warning: Policy creation failed: {p_err}[/]")
+
                         console.print()
                         console.print(Panel(
                             Text(token, style=Colors.SUCCESS),
