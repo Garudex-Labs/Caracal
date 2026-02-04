@@ -111,11 +111,11 @@ def _register_agent(console: Console, state: Optional[FlowState] = None) -> None
     console.print(f"  [{Colors.INFO}]Creating agent...[/]")
     
     try:
-        from caracal.cli.agent import get_agent_registry
+        from caracal.cli.delegation import get_agent_registry_with_delegation
         from caracal.config import load_config
         
         config = load_config()
-        registry = get_agent_registry(config)
+        registry, _ = get_agent_registry_with_delegation(config)
         
         agent = registry.register_agent(name=name, owner=owner, metadata=metadata if metadata else None)
         

@@ -145,6 +145,51 @@ def _generate_token(console: Console) -> None:
             console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to generate token.[/]")
             
     except Exception as e:
+        # Check if error is due to missing keys
+        if "no private key" in str(e).lower():
+            if prompt.confirm(f"Parent agent needs a signing key. Generate one now?", default=True):
+                try:
+                    # Generate keys
+                    private_key, public_key = delegation_manager.generate_key_pair()
+                    
+                    # Update agent metadata
+                    agent = registry.get_agent(parent_id)
+                    if not agent.metadata:
+                        agent.metadata = {}
+                    
+                    agent.metadata["private_key_pem"] = private_key.decode('utf-8')
+                    agent.metadata["public_key_pem"] = public_key.decode('utf-8')
+                    
+                    # Persist changes
+                    registry._persist() # Using internal method as we're fixing data
+                    
+                    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Signing keys generated![/]")
+                    
+                    # Retry token generation
+                    token = registry.generate_delegation_token(
+                        parent_agent_id=parent_id,
+                        child_agent_id=child_id,
+                        spending_limit=float(limit),
+                        currency=currency,
+                        expiration_seconds=int(expiration),
+                        allowed_operations=operations
+                    )
+                    
+                    if token:
+                        console.print()
+                        console.print(Panel(
+                            Text(token, style=Colors.SUCCESS),
+                            title="[bold]Delegation Token[/]",
+                            subtitle="Store securely! Won't be shown again.",
+                            border_style=Colors.SUCCESS
+                        ))
+                        return
+                        
+                except Exception as key_err:
+                    logger.error(f"Failed to recover missing keys: {key_err}")
+                    console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to generate keys: {key_err}[/]")
+                    return
+
         logger.error(f"Error generating token: {e}")
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
 
