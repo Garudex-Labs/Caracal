@@ -114,12 +114,8 @@ class FlowApp:
     
     def _run_delegation_flow(self) -> None:
         """Run delegation center flow."""
-        while True:
-            self.console.clear()
-            action = show_submenu("delegation", self.console)
-            if action is None:
-                break
-            self._show_cli_fallback("delegation", action)
+        from caracal.flow.screens.delegation_flow import run_delegation_flow
+        run_delegation_flow(self.console)
     
     def _run_settings_flow(self) -> None:
         """Run settings flow."""
