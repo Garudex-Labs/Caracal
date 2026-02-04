@@ -56,7 +56,7 @@ def setup_caracal_components():
                 "event": event,
                 "provisional_charge_id": provisional_charge_id
             })
-            print(f"  📊 Metered: {event.resource_type} - ${event.metadata.get('actual_cost', '0.00')}")
+            print(f"  📜 Metered: {event.resource_type} - ${event.metadata.get('actual_cost', '0.00')}")
     
     metering_collector = SimpleMetering()
     
@@ -98,7 +98,7 @@ async def demo_basic_decorator():
     
     # Use the decorated tool
     agent_id = str(uuid4())
-    print(f"\n🤖 Agent: {agent_id[:8]}...")
+    print(f"\n👾 Agent: {agent_id[:8]}...")
     print("  ✅ Budget check passed")
     
     result = await search_documents(
@@ -108,7 +108,7 @@ async def demo_basic_decorator():
     )
     
     print(f"  📄 Results: {result['total']} documents found")
-    print(f"  💰 Total events metered: {len(metering.events)}")
+    print(f"  🪙 Total events metered: {len(metering.events)}")
 
 
 async def demo_llm_tool():
@@ -123,7 +123,7 @@ async def demo_llm_tool():
     @mcp_adapter.as_decorator()
     async def llm_completion(agent_id: str, prompt: str, model: str = "gpt-4", max_tokens: int = 1000):
         """Generate LLM completion."""
-        print(f"  🤖 Model: {model}")
+        print(f"  👾 Model: {model}")
         print(f"  📝 Prompt: '{prompt[:50]}...'")
         print(f"  🎯 Max tokens: {max_tokens}")
         
@@ -138,7 +138,7 @@ async def demo_llm_tool():
     
     # Use the LLM tool
     agent_id = str(uuid4())
-    print(f"\n🤖 Agent: {agent_id[:8]}...")
+    print(f"\n👾 Agent: {agent_id[:8]}...")
     print("  ✅ Budget check passed")
     
     result = await llm_completion(
@@ -150,7 +150,7 @@ async def demo_llm_tool():
     
     print(f"  ✨ Completion generated: {len(result['completion'])} chars")
     print(f"  🎫 Tokens used: {result['tokens_used']}")
-    print(f"  💰 Total events metered: {len(metering.events)}")
+    print(f"  🪙 Total events metered: {len(metering.events)}")
 
 
 async def demo_database_tool():
@@ -166,7 +166,7 @@ async def demo_database_tool():
     async def query_database(agent_id: str, sql: str, database: str = "main"):
         """Execute a database query."""
         print(f"  🗄️  Database: {database}")
-        print(f"  📊 Query: {sql[:60]}...")
+        print(f"  📜 Query: {sql[:60]}...")
         
         # Simulate database query
         await asyncio.sleep(0.15)
@@ -183,7 +183,7 @@ async def demo_database_tool():
     
     # Use the database tool
     agent_id = str(uuid4())
-    print(f"\n🤖 Agent: {agent_id[:8]}...")
+    print(f"\n👾 Agent: {agent_id[:8]}...")
     print("  ✅ Budget check passed")
     
     result = await query_database(
@@ -194,7 +194,7 @@ async def demo_database_tool():
     
     print(f"  📈 Rows returned: {result['count']}")
     print(f"  ⚡ Execution time: {result['execution_time_ms']}ms")
-    print(f"  💰 Total events metered: {len(metering.events)}")
+    print(f"  🪙 Total events metered: {len(metering.events)}")
 
 
 async def demo_sync_function():
@@ -220,7 +220,7 @@ async def demo_sync_function():
     
     # Use the synchronous tool (note: we still await it)
     agent_id = str(uuid4())
-    print(f"\n🤖 Agent: {agent_id[:8]}...")
+    print(f"\n👾 Agent: {agent_id[:8]}...")
     print("  ✅ Budget check passed")
     
     result = await calculate_hash(
@@ -230,7 +230,7 @@ async def demo_sync_function():
     
     print(f"  🔑 Hash: {result['hash'][:16]}...")
     print(f"  📏 Input size: {result['input_size']} bytes")
-    print(f"  💰 Total events metered: {len(metering.events)}")
+    print(f"  🪙 Total events metered: {len(metering.events)}")
 
 
 async def main():

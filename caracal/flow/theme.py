@@ -132,7 +132,7 @@ BANNER = r"""
 ║    ╚██████╗██║  ██║██║  ██║██║  ██║╚██████╗██║  ██║███████╗       ║
 ║     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝       ║
 ║                                                                   ║
-║                     F L O W                                       ║
+║                   C A R A C A L  F L O W                          ║
 ║              Economic Control Plane for AI Agents                 ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
@@ -174,11 +174,11 @@ class Icons:
     # Content
     FOLDER = "📁"
     FILE = "📄"
-    AGENT = "🤖"
+    AGENT = "👾"
     POLICY = "📋"
-    LEDGER = "📊"
-    MONEY = "💰"
-    SETTINGS = "⚙"
+    LEDGER = "📜"
+    MONEY = "🪙 "
+    SETTINGS = "⚙️ "
     HELP = "❓"
     
     # Decorative
