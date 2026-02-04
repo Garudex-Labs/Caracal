@@ -456,11 +456,10 @@ For production high availability:
 
 ## Next Steps
 
-- Read the [Deployment Guide](docs/deployment-guide.md) for production setup
-- Review [Configuration Options](config.v0.2.example.yaml) for advanced settings
-- Set up [Monitoring and Alerting](docs/monitoring.md)
-- Configure [Backup and Recovery](docs/backup-recovery.md)
-- Integrate with your [CI/CD Pipeline](docs/cicd-integration.md)
+- Read the [Deployment Guide](./DEPLOYMENT_GUIDE_V03.md) for production setup
+- Review [Production Guide](./PRODUCTION_GUIDE_V03.md) for advanced settings
+- Set up [Monitoring and Alerting](./DEPLOYMENT_GUIDE_V03.md#monitoring-and-observability)
+- Configure [Backup and Recovery](./DEPLOYMENT_GUIDE_V03.md#backup-and-recovery)
 
 ## Support
 

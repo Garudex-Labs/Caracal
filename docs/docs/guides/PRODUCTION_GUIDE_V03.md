@@ -754,7 +754,7 @@ kubectl scale deployment caracal-gateway -n caracal --replicas=10
 
 ### Troubleshooting Procedures
 
-See [DEPLOYMENT_GUIDE_V03.md](DEPLOYMENT_GUIDE_V03.md#troubleshooting) for detailed troubleshooting procedures.
+See [DEPLOYMENT_GUIDE_V03.md](./DEPLOYMENT_GUIDE_V03.md#troubleshooting) for detailed troubleshooting procedures.
 
 ## Support
 

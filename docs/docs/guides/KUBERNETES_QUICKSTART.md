@@ -292,12 +292,20 @@ Before deploying to production:
 - [ ] Test disaster recovery procedures
 - [ ] Document runbooks for common operations
 
+## Additional Resources
+
+- [Caracal Core Project README](./README_PROJECT.md)
+- [Deployment Guide](./DEPLOYMENT_GUIDE_V03.md)
+- [Production Guide](./PRODUCTION_GUIDE_V03.md)
+- [Architecture Documentation](../index.md)
+- [Quickstart Guide](../quickstart.md)
+
 ## Next Steps
 
-- Read the full [Kubernetes README](k8s/README.md)
-- Configure [monitoring and alerting](k8s/README.md#monitoring)
-- Set up [database backups](k8s/README.md#backup-database)
-- Review [security best practices](k8s/README.md#security)
+- Read the full [Kubernetes Advanced Guide](./KUBERNETES_ADVANCED.md)
+- Configure [monitoring and alerting](./KUBERNETES_ADVANCED.md#monitoring)
+- Set up [database backups](./KUBERNETES_ADVANCED.md#backup-database)
+- Review [security best practices](./KUBERNETES_ADVANCED.md#security)
 
 ## Support
 

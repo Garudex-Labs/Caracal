@@ -851,8 +851,8 @@ kubectl apply -f monitoring/grafana/dashboards/
 
 ## Additional Resources
 
-- [Caracal Core Documentation](./README.md)
+- [Caracal Core Project README](./README_PROJECT.md)
 - [Deployment Guide](./DEPLOYMENT_GUIDE_V03.md)
 - [Production Guide](./PRODUCTION_GUIDE_V03.md)
-- [Architecture Documentation](./docs/architecture/)
-- [API Documentation](./docs/api/)
+- [Architecture Documentation](../index.md)
+- [Quickstart Guide](../quickstart.md)

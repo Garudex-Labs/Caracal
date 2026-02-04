@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --ifm-color-primary: #00aaff;
+  --ifm-color-primary-dark: #0099e6;
+  --ifm-color-primary-darker: #0090d9;
+  --ifm-color-primary-darkest: #0077b3;
+  --ifm-color-primary-light: #1ab2ff;
+  --ifm-color-primary-lighter: #26b7ff;
+  --ifm-color-primary-lightest: #4dc3ff;
+  --ifm-code-font-size: 90%;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 170, 255, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-background-color: #0a0e14;
+  --ifm-navbar-background-color: rgba(10, 14, 20, 0.8);
+  --ifm-color-primary: #00aaff;
+  --ifm-color-primary-dark: #0099e6;
+  --ifm-color-primary-darker: #0090d9;
+  --ifm-color-primary-darkest: #0077b3;
+  --ifm-color-primary-light: #1ab2ff;
+  --ifm-color-primary-lighter: #26b7ff;
+  --ifm-color-primary-lightest: #4dc3ff;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 170, 255, 0.2);
+}
+
+.navbar {
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+}
+
+.footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background-color: #0a0e14;
+}
+
+.docusaurus-highlight-code-line {
+  background-color: var(--docusaurus-highlighted-code-line-bg);
+  display: block;
+  margin: 0 calc(-1 * var(--ifm-pre-padding));
+  padding: 0 var(--ifm-pre-padding);
+}
+
+/* Custom transitions and premium feel */
+.navbar__link {
+  transition: color 0.2s ease;
+}
+
+.navbar__link:hover {
+  color: var(--ifm-color-primary) !important;
+}
+
+.button--primary {
+  background: linear-gradient(135deg, #00aaff 0%, #0077b3 100%);
+  border: none;
+  font-weight: 600;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.button--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(0, 170, 255, 0.3);
+}
+
+/* Hide Docusaurus tag in production if possible via CSS */
+.footer__tagline {
+  display: none;
+}

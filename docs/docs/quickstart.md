@@ -1,4 +1,9 @@
-# Caracal Gateway Proxy - Docker Quick Start
+---
+sidebar_position: 2
+title: Quickstart Guide
+---
+
+# Docker Quickstart Guide
 
 Get the Caracal Gateway Proxy running in 5 minutes!
 
