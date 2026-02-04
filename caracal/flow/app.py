@@ -127,8 +127,16 @@ class FlowApp:
             
             if action == "view":
                 self._show_current_config()
+            elif action == "edit":
+                self._run_edit_config()
+            elif action == "infra":
+                self._run_infra_actions()
             elif action == "db-status":
                 self._show_db_status()
+            elif action == "kafka-status":
+                self._show_kafka_status()
+            elif action == "services-status":
+                self._show_services_status()
             else:
                 self._show_cli_fallback("", action)
     
@@ -183,6 +191,7 @@ class FlowApp:
     def _show_db_status(self) -> None:
         """Show database connection status."""
         from rich.panel import Panel
+        import socket
         
         self.console.print(Panel(
             f"[{Colors.NEUTRAL}]Database Connection Status[/]",
@@ -205,16 +214,79 @@ class FlowApp:
                 self.console.print(f"  [{Colors.INFO}]Database:[/] {config.database.database}")
                 self.console.print()
                 
-                # Try to connect
+                # Check TCP connection
                 self.console.print(f"  [{Colors.INFO}]Testing connection...[/]")
-                # Simplified - would actually test connection
-                self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connection OK[/]")
+                try:
+                    sock = socket.create_connection((config.database.host, config.database.port), timeout=2)
+                    sock.close()
+                    self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connection OK[/]")
+                except Exception as e:
+                    self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection Failed: {e}[/]")
             else:
                 self.console.print(f"  [{Colors.INFO}]Storage Mode:[/] File-based")
                 self.console.print(f"  [{Colors.DIM}]PostgreSQL not configured[/]")
             
         except Exception as e:
             self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
+        
+        self.console.print()
+        self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+        input()
+
+    def _show_kafka_status(self) -> None:
+        """Show Kafka and Zookeeper connection status."""
+        from rich.panel import Panel
+        import socket
+        
+        self.console.print(Panel(
+            f"[{Colors.NEUTRAL}]Kafka Infrastructure Status[/]",
+            title=f"[bold {Colors.INFO}]Kafka & Zookeeper[/]",
+            border_style=Colors.PRIMARY,
+        ))
+        self.console.print()
+        
+        services = [
+            ("Zookeeper", "localhost", 2181),
+            ("Kafka", "localhost", 9092),
+        ]
+        
+        for name, host, port in services:
+            try:
+                sock = socket.create_connection((host, port), timeout=2)
+                sock.close()
+                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.SUCCESS}]{Icons.SUCCESS} Running[/] ({host}:{port})")
+            except Exception:
+                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.ERROR}]{Icons.ERROR} Unreachable[/] ({host}:{port})")
+        
+        self.console.print()
+        self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+        input()
+
+    def _show_services_status(self) -> None:
+        """Show other services status."""
+        from rich.panel import Panel
+        import socket
+        
+        self.console.print(Panel(
+            f"[{Colors.NEUTRAL}]Additional Services Status[/]",
+            title=f"[bold {Colors.INFO}]Services[/]",
+            border_style=Colors.PRIMARY,
+        ))
+        self.console.print()
+        
+        services = [
+            ("Redis", "localhost", 6379),
+            ("Schema Registry", "localhost", 8081),
+            ("Gateway", "localhost", 8443),
+        ]
+        
+        for name, host, port in services:
+            try:
+                sock = socket.create_connection((host, port), timeout=2)
+                sock.close()
+                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.SUCCESS}]{Icons.SUCCESS} Running[/] ({host}:{port})")
+            except Exception:
+                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.ERROR}]{Icons.ERROR} Unreachable[/] ({host}:{port})")
         
         self.console.print()
         self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
@@ -260,14 +332,11 @@ class FlowApp:
         
         self.console.print(Panel(
             f"""[{Colors.NEUTRAL}]Caracal Flow - Interactive CLI for Caracal[/]
-
 [{Colors.INFO}]Version:[/] {__version__}
 [{Colors.INFO}]License:[/] AGPL-3.0
-
 [{Colors.NEUTRAL}]Caracal is an economic control plane for AI agents,
 providing budget enforcement, metering, and ledger
 management.[/]
-
 [{Colors.DIM}]Website: https://github.com/Garudex-Labs/caracal[/]
 """,
             title=f"[bold {Colors.INFO}]About Caracal[/]",
@@ -305,6 +374,88 @@ management.[/]
         self.console.print(f"  [{Colors.INFO}]{Icons.SUCCESS} Goodbye! Use 'caracal-flow' to return.[/]")
         self.console.print()
     
+    
+    def _run_edit_config(self) -> None:
+        """Open configuration in system editor."""
+        import os
+        import shutil
+        import subprocess
+        from caracal.config.settings import get_default_config_path
+        
+        config_path = get_default_config_path()
+        
+        # Determine editor
+        editor = os.environ.get("EDITOR", "nano")
+        if not shutil.which(editor):
+            # Fallback if preferred editor not found
+            for fallback in ["nano", "vim", "vi", "notepad"]:
+                if shutil.which(fallback):
+                    editor = fallback
+                    break
+        
+        self.console.clear()
+        self.console.print(f"[{Colors.INFO}]Opening configuration in {editor}...[/]")
+        self.console.print(f"[{Colors.DIM}]Path: {config_path}[/]")
+        
+        try:
+            # Suspend rich/curses mode to run editor
+            subprocess.call([editor, config_path])
+            self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} Editor closed.[/]")
+        except Exception as e:
+            self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Failed to open editor: {e}[/]")
+        
+        self.console.print()
+        self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+        input()
+
+    def _run_infra_actions(self) -> None:
+        """Run infrastructure management actions."""
+        from caracal.flow.components.menu import Menu, MenuItem
+        import subprocess
+        
+        while True:
+            self.console.clear()
+            
+            items = [
+                MenuItem("up", "Start All Services", "Start Postgres, Kafka, etc.", ""),
+                MenuItem("down", "Stop All Services", "Stop and remove containers", ""),
+                MenuItem("postgres", "Start Postgres Only", "Start only database", ""),
+                MenuItem("kafka", "Start Kafka Only", "Start only message bus", ""),
+                MenuItem("back", "Back to Settings", "", Icons.ARROW_LEFT),
+            ]
+            
+            menu = Menu("Infrastructure Setup", items=items)
+            result = menu.run()
+            
+            if not result or result.key == "back":
+                break
+            
+            # Execute command
+            cmd = []
+            if result.key == "up":
+                cmd = ["docker", "compose", "up", "-d"]
+            elif result.key == "down":
+                cmd = ["docker", "compose", "down"]
+            elif result.key == "postgres":
+                cmd = ["docker", "compose", "up", "-d", "postgres"]
+            elif result.key == "kafka":
+                cmd = ["docker", "compose", "up", "-d", "kafka", "zookeeper"]
+            
+            self.console.print()
+            self.console.print(f"[{Colors.INFO}]Running: {' '.join(cmd)}[/]")
+            
+            try:
+                subprocess.run(cmd, check=True)
+                self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} Command completed successfully.[/]")
+            except subprocess.CalledProcessError as e:
+                self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Command failed: {e}[/]")
+            except FileNotFoundError:
+                self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} 'docker' command not found in PATH.[/]")
+            
+            self.console.print()
+            self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+            input()
+
     def _save_state(self) -> None:
         """Save application state."""
         try:

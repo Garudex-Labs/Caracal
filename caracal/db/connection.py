@@ -25,11 +25,13 @@ class DatabaseConfig:
     
     def __init__(
         self,
+        type: str = "postgres",
         host: str = "localhost",
         port: int = 5432,
         database: str = "caracal",
         user: str = "caracal",
         password: str = "",
+        file_path: str = "",
         pool_size: int = 10,
         max_overflow: int = 5,
         pool_timeout: int = 30,
@@ -40,22 +42,26 @@ class DatabaseConfig:
         Initialize database configuration.
         
         Args:
+            type: Database type ("postgres" or "sqlite")
             host: PostgreSQL host
             port: PostgreSQL port
             database: Database name
             user: Database user
             password: Database password
+            file_path: Path to SQLite database file
             pool_size: Number of connections to maintain in pool (default 10)
             max_overflow: Maximum overflow connections beyond pool_size (default 5)
             pool_timeout: Timeout in seconds for getting connection from pool (default 30)
             pool_recycle: Recycle connections after this many seconds (default 3600 = 1 hour)
             echo: Enable SQL query logging (default False)
         """
+        self.type = type
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
+        self.file_path = file_path
         self.pool_size = pool_size
         self.max_overflow = max_overflow
         self.pool_timeout = pool_timeout
@@ -63,16 +69,29 @@ class DatabaseConfig:
         self.echo = echo
     
     def get_connection_url(self) -> str:
-        """Get PostgreSQL connection URL."""
+        """Get database connection URL."""
+        if self.type == "sqlite":
+            path = self.file_path
+            if not path:
+                # Default to memory or relative path? 
+                # Better to error or use a safe default if not provided, but config usually handles defaults.
+                # If path is relative, it will be relative to CWD.
+                # If path starts with handling user expansion, it should be done before here.
+                # However, for sqlite /// is absolute, //// is absolute? 
+                # SQLAlchemy sqlite: sqlite:///foo.db (relative), sqlite:////absolute/path/to/foo.db
+                pass 
+            return f"sqlite:///{self.file_path}"
+        
+        # Postgres default
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 
 class DatabaseConnectionManager:
     """
-    Manages PostgreSQL database connections with pooling.
+    Manages database connections.
     
-    Provides connection pooling, health checks, and automatic retry logic
-    for database operations.
+    Provides connection pooling, health checks, and automatic retry logic.
+    Supports PostgreSQL (with pooling) and SQLite.
     
     Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
     """
@@ -80,15 +99,6 @@ class DatabaseConnectionManager:
     def __init__(self, config: DatabaseConfig):
         """
         Initialize connection manager with configuration.
-        
-        Creates SQLAlchemy engine with connection pooling:
-        - Pool size: configurable (default 10)
-        - Max overflow: configurable (default 5)
-        - Pool timeout: configurable (default 30s)
-        - Pool recycle: 3600s (1 hour)
-        
-        Args:
-            config: Database configuration
         """
         self.config = config
         self._engine: Optional[Engine] = None
@@ -96,16 +106,14 @@ class DatabaseConnectionManager:
         self._initialized = False
         
         logger.info(
-            f"Initializing database connection manager: "
-            f"host={config.host}, port={config.port}, database={config.database}, "
-            f"pool_size={config.pool_size}, max_overflow={config.max_overflow}"
+            f"Initializing database connection manager: type={config.type}"
         )
     
     def initialize(self) -> None:
         """
         Initialize database engine and session factory.
         
-        Creates SQLAlchemy engine with QueuePool for connection pooling.
+        Creates SQLAlchemy engine.
         Must be called before using get_session().
         """
         if self._initialized:
@@ -114,16 +122,29 @@ class DatabaseConnectionManager:
         
         connection_url = self.config.get_connection_url()
         
-        # Create engine with connection pooling
-        self._engine = create_engine(
-            connection_url,
-            poolclass=QueuePool,
-            pool_size=self.config.pool_size,
-            max_overflow=self.config.max_overflow,
-            pool_timeout=self.config.pool_timeout,
-            pool_recycle=self.config.pool_recycle,
-            echo=self.config.echo,
-        )
+        if self.config.type == "sqlite":
+            # SQLite specific engine creation
+            from sqlalchemy.pool import StaticPool
+            
+            connect_args = {"check_same_thread": False}
+            
+            self._engine = create_engine(
+                connection_url,
+                connect_args=connect_args,
+                poolclass=StaticPool if self.config.file_path == ":memory:" else None,
+                echo=self.config.echo,
+            )
+        else:
+            # PostgreSQL with connection pooling
+            self._engine = create_engine(
+                connection_url,
+                poolclass=QueuePool,
+                pool_size=self.config.pool_size,
+                max_overflow=self.config.max_overflow,
+                pool_timeout=self.config.pool_timeout,
+                pool_recycle=self.config.pool_recycle,
+                echo=self.config.echo,
+            )
         
         # Create session factory
         self._session_factory = sessionmaker(

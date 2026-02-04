@@ -49,11 +49,13 @@ def get_database_config_from_context(ctx) -> DatabaseConfig:
     
     # Extract configuration with defaults
     return DatabaseConfig(
+        type=getattr(db_config, 'type', 'postgres'),
         host=getattr(db_config, 'host', 'localhost'),
         port=getattr(db_config, 'port', 5432),
         database=getattr(db_config, 'database', 'caracal'),
         user=getattr(db_config, 'user', 'caracal'),
         password=getattr(db_config, 'password', ''),
+        file_path=getattr(db_config, 'file_path', ''),
         pool_size=getattr(db_config, 'pool_size', 10),
         max_overflow=getattr(db_config, 'max_overflow', 5),
         pool_timeout=getattr(db_config, 'pool_timeout', 30),

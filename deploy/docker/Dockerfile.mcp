@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy dependency files
 COPY pyproject.toml setup.py MANIFEST.in ./
-COPY README.md LICENSE ./
+COPY README.md LICENSE VERSION ./
 
 # Copy source code
 COPY caracal/ ./caracal/
@@ -58,7 +58,8 @@ COPY --from=builder /wheels /wheels
 # Install the application and dependencies from wheels
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir /wheels/*.whl && \
-    rm -rf /wheels
+    rm -rf /wheels && \
+    sed -i 's/from typing import Dict/from typing import Any, Dict/' /usr/local/lib/python3.10/site-packages/ase/core/versioning.py
 
 # Create directories for configuration and logs
 RUN mkdir -p /etc/caracal/config /var/log/caracal && \

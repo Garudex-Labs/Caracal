@@ -359,10 +359,23 @@ defaults:
   time_window: daily
   default_budget: 100.00
 
+
 logging:
   level: INFO
   file: ~/.caracal/caracal.log
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+database:
+  type: postgres  # or "sqlite"
+  # For PostgreSQL:
+  host: localhost
+  port: 5432
+  database: caracal
+  user: caracal
+  password: ""
+  # For SQLite:
+  # type: sqlite
+  # file_path: ~/.caracal/caracal.db
 
 performance:
   policy_eval_timeout_ms: 100

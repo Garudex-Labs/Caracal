@@ -34,8 +34,10 @@ env/
 .gitignore
 .gitattributes
 
-# Documentation
-*.md
+# Documentation (exclude most, but keep README.md and LICENSE for build)
+!README.md
+!LICENSE
+!VERSION
 docs/
 examples/
 scripts/

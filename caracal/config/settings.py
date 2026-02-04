@@ -135,13 +135,15 @@ class StorageConfig:
 
 @dataclass
 class DatabaseConfig:
-    """Database configuration for PostgreSQL."""
+    """Database configuration."""
     
+    type: str = "postgres"  # "postgres" or "sqlite"
     host: str = "localhost"
     port: int = 5432
     database: str = "caracal"
     user: str = "caracal"
     password: str = ""
+    file_path: str = ""  # For SQLite
     pool_size: int = 10
     max_overflow: int = 5
     pool_timeout: int = 30
@@ -599,11 +601,13 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     # Parse database configuration (optional, for v0.2)
     database_data = config_data.get('database', {})
     database = DatabaseConfig(
+        type=database_data.get('type', default_config.database.type),
         host=database_data.get('host', default_config.database.host),
         port=database_data.get('port', default_config.database.port),
         database=database_data.get('database', default_config.database.database),
         user=database_data.get('user', default_config.database.user),
         password=database_data.get('password', default_config.database.password),
+        file_path=os.path.expanduser(database_data.get('file_path', default_config.database.file_path)),
         pool_size=database_data.get('pool_size', default_config.database.pool_size),
         max_overflow=database_data.get('max_overflow', default_config.database.max_overflow),
         pool_timeout=database_data.get('pool_timeout', default_config.database.pool_timeout),

@@ -27,6 +27,20 @@ from caracal.exceptions import InvalidConfigurationError
 class TestConfigurationDataclasses:
     """Test configuration dataclass structures."""
     
+    
+    def test_database_config_defaults(self):
+        """Test DatabaseConfig has correct defaults."""
+        from caracal.config.settings import DatabaseConfig
+        config = DatabaseConfig()
+        assert config.type == "postgres"
+        assert config.host == "localhost"
+        assert config.port == 5432
+        assert config.database == "caracal"
+        assert config.user == "caracal"
+        assert config.password == ""
+        assert config.file_path == ""
+        assert config.pool_size == 10
+
     def test_kafka_config_defaults(self):
         """Test KafkaConfig has correct defaults."""
         config = KafkaConfig()
