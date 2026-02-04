@@ -137,6 +137,10 @@ class FlowApp:
                 self._show_kafka_status()
             elif action == "services-status":
                 self._show_services_status()
+            elif action == "backup":
+                self._run_backup_flow()
+            elif action == "restore":
+                self._run_restore_flow()
             else:
                 self._show_cli_fallback("", action)
     
@@ -463,3 +467,108 @@ management.[/]
             self.persistence.save(self.state)
         except Exception:
             pass  # Silently fail on state save
+
+    def _run_backup_flow(self) -> None:
+        """Run data backup flow."""
+        import shutil
+        import datetime
+        from pathlib import Path
+        from caracal.config import load_config
+        
+        self.console.clear()
+        self.console.print(f"[{Colors.INFO}]Create Data Backup[/]")
+        self.console.print()
+        
+        config = load_config()
+        
+        if config.database.type != "sqlite":
+            self.console.print(f"[{Colors.WARNING}]{Icons.WARNING} Backup is currently optimized for SQLite.[/]")
+            self.console.print(f"[{Colors.DIM}]For Docker/Postgres, please use standard docker volume backup tools.[/]")
+            self.console.print()
+            self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+            input()
+            return
+
+        db_path = Path(config.database.file_path)
+        if not db_path.exists():
+            self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Database file not found at {db_path}[/]")
+            input()
+            return
+            
+        # Create backups directory
+        backup_dir = Path.home() / ".caracal" / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = backup_dir / f"caracal_backup_{timestamp}.db"
+        
+        try:
+            shutil.copy2(db_path, backup_file)
+            self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} Backup created successfully![/]")
+            self.console.print(f"[{Colors.DIM}]Location: {backup_file}[/]")
+        except Exception as e:
+             self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Backup failed: {e}[/]")
+             
+        self.console.print()
+        self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+        input()
+
+    def _run_restore_flow(self) -> None:
+        """Run data restore flow."""
+        import shutil
+        from pathlib import Path
+        from caracal.config import load_config
+        from caracal.flow.components.menu import Menu, MenuItem
+        
+        config = load_config()
+        if config.database.type != "sqlite":
+             self.console.print(f"[{Colors.WARNING}]{Icons.WARNING} Restore is only available for SQLite currently.[/]")
+             input()
+             return
+
+        backup_dir = Path.home() / ".caracal" / "backups"
+        if not backup_dir.exists():
+             self.console.print(f"[{Colors.WARNING}]No backups found directory created.[/]")
+             input()
+             return
+             
+        backups = sorted(list(backup_dir.glob("*.db")), reverse=True)
+        if not backups:
+             self.console.print(f"[{Colors.WARNING}]No backup files found.[/]")
+             input()
+             return
+
+        items = []
+        for backup in backups:
+            items.append(MenuItem(str(backup), backup.name, f"Size: {backup.stat().st_size / 1024:.1f} KB", Icons.FILE))
+            
+        items.append(MenuItem("back", "Cancel", "", Icons.ARROW_LEFT))
+        
+        menu = Menu("Select Backup to Restore", items=items)
+        result = menu.run()
+        
+        if result and result.key != "back":
+            backup_file = Path(result.key)
+            target_file = Path(config.database.file_path)
+            
+            self.console.print()
+            self.console.print(f"[{Colors.WARNING}]⚠️  WARNING: This will overwrite your current database![/]")
+            self.console.print(f"Target: {target_file}")
+            self.console.print("Are you sure? (type 'restore' to confirm)")
+            
+            confirm = input("> ").strip()
+            if confirm == "restore":
+                try:
+                    # Create safety backup of current state
+                    safety_backup = target_file.with_suffix(".bak")
+                    if target_file.exists():
+                        shutil.copy2(target_file, safety_backup)
+                    
+                    shutil.copy2(backup_file, target_file)
+                    self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} Database restored successfully.[/]")
+                except Exception as e:
+                    self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Restore failed: {e}[/]")
+            else:
+                self.console.print("[{Colors.DIM}]Restore cancelled.[/]")
+                
+            input()
