@@ -62,4 +62,4 @@ Caracal ensures your AI agents operate within defined economic boundaries with c
 ## Community
 
 - **GitHub**: [Garudex-Labs/Caracal](https://github.com/Garudex-Labs/Caracal)
-- **Discord**: [Join our community](https://discord.gg/caracal)
+- **Discord**: [Join our community](https://discord.gg/d32UBmsK7A)

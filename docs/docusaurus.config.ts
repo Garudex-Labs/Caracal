@@ -119,7 +119,7 @@ const config: Config = {
             },
             {
               label: 'Discord',
-              href: 'https://discord.gg/caracal',
+              href: 'https://discord.gg/d32UBmsK7A',
             },
           ],
         },

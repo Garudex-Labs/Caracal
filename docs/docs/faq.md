@@ -135,5 +135,5 @@ caracal merkle verify-range --start <date> --end <date>
 ### Where can I get help?
 
 - [GitHub Issues](https://github.com/Garudex-Labs/Caracal/issues)
-- [Discord Community](https://discord.gg/caracal)
+- [Discord Community](https://discord.gg/d32UBmsK7A)
 - Email: support@garudexlabs.com
