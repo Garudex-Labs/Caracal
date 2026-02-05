@@ -1,7 +1,7 @@
 <div align="center">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="public/caracal_nobg_dark_mode.png">
-<source media="(prefers-color-scheme: light)" srcset="/home/raw/Documents/workspace/caracalEcosystem/Caracal/public/caracal_nobg.png">
+<source media="(prefers-color-scheme: light)" srcset="public/caracal_nobg.png">
 <img alt="Caracal Logo" src="public/caracal_nobg.png" width="300">
 </picture>
 </div>
