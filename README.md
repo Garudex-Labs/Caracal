@@ -1,86 +1,147 @@
-# Caracal
+<div align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="/home/raw/Documents/workspace/caracalEcosystem/Caracal/public/caracal_nobg_dark_mode.png">
+<source media="(prefers-color-scheme: light)" srcset="/home/raw/Documents/workspace/caracalEcosystem/Caracal/public/caracal_nobg.png">
+<img alt="Caracal Logo" src="/home/raw/Documents/workspace/caracalEcosystem/Caracal/public/caracal_nobg.png" width="300">
+</picture>
+</div>
 
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](VERSION)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
+<div align="center">
 
-**Caracal** is an economic control plane for AI agents. It provides a robust infrastructure for budget enforcement, real-time metering, and secure ledger management.
+**The Economic Control Plane for AI Agents**
+
+</div>
 
 ---
 
-## Options
+## Overview
 
-Caracal provides two ways to interact with the platform:
+**Caracal** is the infrastructure layer for the Agentic Economy. It serves as a centralized economic control plane that allows developers and enterprises to enforce budgets, meter usage in real-time, and manage secure ledgers for autonomous AI agents.
 
-### 1. Caracal Flow (Standard Use)
-For standard users who want a guided experience with default configurations. 
-*   **Command**: `uv run caracal-flow`
-*   **Default**: Starts with minimal infrastructure using file-based SQLite storage.
-*   **Upgrade**: Easily transition to production-grade infra via the built-in settings.
-
-### 2. Caracal Core (Power Users)
-For power users who require high customization and programmatic control.
-*   **Command**: `caracal`
-*   **Usage**: Ideal for CLI workflows, CI/CD integration, and custom scripting.
-*   **Extensible**: Full access to the SDK and advanced environment configurations.
+As agents transition from chat interfaces to autonomous execution, economic safety becomes critical. Caracal ensures agents operate within defined financial and computational boundaries using dynamic access tokens and ephemeral credentials, preventing runaway API costs and unauthorized transactions.
 
 ---
 
 ## Quickstart
 
-### 1. Installation
-Clone the repository and install dependencies using `uv`:
+Caracal offers two distinct interfaces depending on your role and requirements.
+
+### 1. Caracal Flow (Default)
+
+**Target:** Operators, FinOps, and Monitoring Teams.
+
+Caracal Flow is the interactive Terminal User Interface (TUI). It provides a visual dashboard for monitoring agent swarms, managing infrastructure, and auditing real-time spend without writing code.
+
+```text
+╔═══════════════════════════════════════════════════════════════════╗
+║                                                                   ║
+║     ██████╗ █████╗ ██████╗  █████╗  ██████╗ █████╗ ██╗            ║
+║    ██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██║            ║
+║    ██║     ███████║██████╔╝███████║██║     ███████║██║            ║
+║    ██║     ██╔══██║██╔══██╗██╔══██║██║     ██╔══██║██║            ║
+║    ╚██████╗██║  ██║██║  ██║██║  ██║╚██████╗██║  ██║███████╗       ║
+║     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝       ║
+║                                                                   ║
+║                   C A R A C A L  F L O W                          ║
+║              Economic Control Plane for AI Agents                 ║
+║                                                                   ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+```
+
+**Launch Dashboard:**
+
+```bash
+uv run caracal-flow
+
+```
+
+**Capabilities in Flow:**
+
+* **Visual Metering:** Real-time graphs of token usage and dollar spend.
+* **One-Click Infrastructure:** Toggle between local SQLite and production Docker stacks.
+* **Policy Management:** GUI-based adjustments for agent budget caps.
+
+---
+
+### 2. Caracal Core (Power Users)
+
+**Target:** Developers, CI/CD Engineers, and System Architects.
+
+Caracal Core provides the high-performance CLI and SDK for deep integration. It is designed for users who require programmatic control, custom scripting, or wish to embed economic safety checks directly into agent loops.
+
+**Installation:**
 
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git
 cd caracal
 pip install -e .
+
 ```
 
-### 2. Launch the TUI
-Start the interactive dashboard:
+**CLI Commands:**
 
 ```bash
-uv run caracal-flow
+# Register a new agent identity with a hard budget cap
+caracal agents register --name "researcher-01" --budget 50.00 --zone "dev-cluster"
+
+# Generate a dynamic access token for a specific session
+caracal auth token --agent "researcher-01" --ttl 3600
+
+# Audit the ledger for specific transactions
+caracal ledger audit --agent "researcher-01" --format json
+
 ```
 
-### 3. Production Infrastructure
-By default, Caracal uses **SQLite** and local file storage. To enable production-grade infrastructure (PostgreSQL, Kafka, Redis):
-
-1.  Open `caracal-flow`.
-2.  Navigate to **Settings & Config** -> **Infrastructure Setup**.
-3.  Select **Start All Services**.
-4.  All services will be provisioned via Docker automatically.
+**Advanced Configuration:**
+Power users can override default behaviors by modifying `caracal.yaml` or setting environment variables for custom identity providers (IdP) and key management systems (KMS).
 
 ---
 
-## CLI Usage (Caracal Core)
+## Core Capabilities
 
-```bash
-# Register an agent
-caracal agents register --name "researcher"
+**Dynamic Identity & Access**
+Move beyond static API keys. Caracal issues ephemeral, identity-attested credentials that can be revoked instantly. Authorization happens at the edge where agents interact with their environment.
 
-# List policies
-caracal policies list
+**Budget Enforcement**
+Define hard caps on token usage, dollar spend, and transaction frequency per agent identity. Policies are deterministic and enforced at the gateway level before any cost is incurred.
 
-# Check service status
-caracal status
-```
+**Secure Ledger**
+An immutable audit trail for every economic decision made by an agent. This system of record allows companies to attribute costs to specific agents, explain outcomes, and ensure compliance.
+
+**Agent-Native Data Model**
+Map workloads into logical, ephemeral zones. Spin zones up or down as needed, perfect for dynamic, agent-native workloads that integrate directly into your software development lifecycle.
+
+---
+
+## Infrastructure
+
+Caracal is designed to scale with your agent fleet.
+
+| Environment | Database | Messaging | Cache | Use Case |
+| --- | --- | --- | --- | --- |
+| **Local** | SQLite | In-Memory | Local Dict | Zero-setup dev, testing, and Caracal Flow default. |
+| **Production** | PostgreSQL | Kafka | Redis | High-throughput enterprise deployment. |
+
+**To enable production mode:**
+
+1. Open `caracal-flow`.
+2. Navigate to **Settings & Config** > **Infrastructure Setup**.
+3. Select **Start All Services** (provisions containers via Docker).
 
 ---
 
 ## Project Structure
 
-*   `caracal/core/`: Budgeting, identity, and ledger logic.
-*   `caracal/flow/`: Terminal UI (TUI) interactive experience.
-*   `caracal/gateway/`: Policy enforcement proxy.
-*   `deploy/docker/`: Production infrastructure definitions.
+* `caracal/core/`: Business logic for budgeting, identity, and ledger operations.
+* `caracal/flow/`: TUI layer for the visual dashboard.
+* `caracal/gateway/`: Policy enforcement proxy and middleware.
+* `deploy/`: Infrastructure definitions (Docker Compose, Helm).
 
 ---
 
 ## License
 
-Licensed under **AGPL-3.0**. See [LICENSE](LICENSE) for details.
+Caracal is open-source software licensed under the **AGPL-3.0**. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for full details.
 
----
-
-**Developed by the Garudex Labs.**
+**Developed by Garudex Labs.**
