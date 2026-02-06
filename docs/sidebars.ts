@@ -26,6 +26,24 @@ const sidebars: SidebarsConfig = {
           label: 'Concepts',
           items: [
             'caracalCore/concepts/architecture',
+            'caracalCore/concepts/coreVsFlow',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'CLI Reference',
+          link: { type: 'doc', id: 'caracalCore/cliReference/index' },
+          items: [
+            'caracalCore/cliReference/agent',
+            'caracalCore/cliReference/policy',
+            'caracalCore/cliReference/ledger',
+            'caracalCore/cliReference/database',
+            'caracalCore/cliReference/merkle',
+            'caracalCore/cliReference/delegation',
+            'caracalCore/cliReference/pricebook',
+            'caracalCore/cliReference/backup',
+            'caracalCore/cliReference/kafka',
+            'caracalCore/cliReference/keys',
           ],
         },
         {

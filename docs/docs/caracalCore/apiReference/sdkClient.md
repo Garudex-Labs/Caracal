@@ -1,15 +1,13 @@
+---
+sidebar_position: 1
+title: SDK Client
+---
+
 # Caracal SDK
 
-The Caracal SDK provides a developer-friendly Python API for integrating budget checks and metering into AI agent applications.
+Python SDK for integrating budget checks and metering into AI agent applications.
 
-## Features
-
-- **Configuration Management**: Automatic loading of Caracal configuration
-- **Component Integration**: Seamless integration with all Caracal Core components
-- **Event Emission**: Direct metering event emission with cost calculation
-- **Budget Checking**: Simple budget verification methods
-- **Fail-Closed Semantics**: Automatic denial on errors to prevent unchecked spending
-- **Clear Error Messages**: Comprehensive error handling with informative messages
+---
 
 ## Installation
 
@@ -17,179 +15,42 @@ The Caracal SDK provides a developer-friendly Python API for integrating budget 
 pip install caracal-core
 ```
 
+Or with UV:
+
+```bash
+uv pip install caracal-core
+```
+
+---
+
 ## Quick Start
 
 ```python
 from decimal import Decimal
 from caracal.sdk.client import CaracalClient
 
-# Initialize client (uses default config at ~/.caracal/config.yaml)
+# Initialize client
 client = CaracalClient()
 
-# Or specify custom config path
-client = CaracalClient(config_path="/path/to/config.yaml")
-
-# Check if agent is within budget
+# Check budget before operation
 if client.check_budget("my-agent-id"):
-    # Proceed with expensive operation
-    result = call_expensive_api()
+    result = call_ai_api()
     
-    # Emit metering event
+    # Record the spending
     client.emit_event(
         agent_id="my-agent-id",
-        resource_type="openai.gpt-5.2.input_tokens",
-        quantity=Decimal("1"),
-        metadata={"model": "gpt-5.2"}
+        resource_type="openai.gpt-4.output_tokens",
+        quantity=Decimal("500")
     )
 ```
 
-## API Reference
-
-### CaracalClient
-
-Main SDK client class for interacting with Caracal Core.
-
-#### `__init__(config_path: Optional[str] = None)`
-
-Initialize the Caracal SDK client.
-
-**Parameters:**
-- `config_path` (optional): Path to configuration file. If None, uses default path `~/.caracal/config.yaml`.
-
-**Raises:**
-- `ConnectionError`: If initialization fails (fail-closed)
-- `SDKConfigurationError`: If configuration is invalid
-
-**Example:**
-```python
-# Use default configuration
-client = CaracalClient()
-
-# Use custom configuration
-client = CaracalClient(config_path="/etc/caracal/config.yaml")
-```
-
-#### `emit_event(agent_id: str, resource_type: str, quantity: Decimal, metadata: Optional[Dict] = None)`
-
-Emit a metering event directly.
-
-**Parameters:**
-- `agent_id`: Agent identifier
-- `resource_type`: Type of resource consumed (e.g., "openai.gpt-5.2.input_tokens")
-- `quantity`: Amount of resource consumed (as Decimal)
-- `metadata` (optional): Additional context for the event
-
-**Raises:**
-- `ConnectionError`: If event emission fails (fail-closed)
-
-**Example:**
-```python
-from decimal import Decimal
-
-client.emit_event(
-    agent_id="my-agent-id",
-    resource_type="openai.gpt-5.2.input_tokens",
-    quantity=Decimal("1"),
-    metadata={
-        "model": "gpt-5.2",
-        "request_id": "req_123",
-        "user": "user@example.com"
-    }
-)
-```
-
-#### `check_budget(agent_id: str) -> bool`
-
-Check if an agent is within budget.
-
-**Parameters:**
-- `agent_id`: Agent identifier
-
-**Returns:**
-- `True` if agent is within budget, `False` otherwise
-
-**Fail-Closed Behavior:**
-- Returns `False` if budget check fails
-- Returns `False` if no policy exists for agent
-- Returns `False` on any error
-
-**Example:**
-```python
-if client.check_budget("my-agent-id"):
-    # Agent is within budget, proceed
-    result = call_expensive_api()
-else:
-    # Agent exceeded budget or check failed
-    print("Budget exceeded or check failed")
-```
-
-#### `get_remaining_budget(agent_id: str) -> Optional[Decimal]`
-
-Get the remaining budget for an agent.
-
-**Parameters:**
-- `agent_id`: Agent identifier
-
-**Returns:**
-- Remaining budget as `Decimal`, or `None` if check fails
-
-**Fail-Closed Behavior:**
-- Returns `None` if budget check fails
-- Returns `Decimal('0')` if agent has no remaining budget
-
-**Example:**
-```python
-remaining = client.get_remaining_budget("my-agent-id")
-
-if remaining and remaining > Decimal("10.00"):
-    # Sufficient budget remaining
-    result = call_expensive_api()
-else:
-    # Insufficient budget or check failed
-    print(f"Insufficient budget: {remaining}")
-```
-
-## Fail-Closed Semantics
-
-The SDK implements fail-closed semantics to prevent unchecked spending:
-
-1. **Initialization Failures**: If the client cannot initialize (e.g., missing configuration, component failures), it raises `ConnectionError` immediately.
-
-2. **Event Emission Failures**: If event emission fails, the SDK raises `ConnectionError` to alert the caller that the event was not recorded.
-
-3. **Budget Check Failures**: If budget checks fail (e.g., policy evaluation error, ledger query error), the SDK returns `False` to deny the operation.
-
-4. **Missing Policies**: If no policy exists for an agent, budget checks return `False` (deny).
-
-This ensures that errors always result in denial rather than allowing potentially over-budget execution.
-
-## Error Handling
-
-The SDK provides clear error messages for all failure modes:
-
-```python
-from caracal.exceptions import ConnectionError, BudgetExceededError
-
-try:
-    client = CaracalClient(config_path="/invalid/path.yaml")
-except ConnectionError as e:
-    print(f"Failed to initialize client: {e}")
-
-try:
-    client.emit_event(
-        agent_id="my-agent-id",
-        resource_type="openai.gpt4.input_tokens",
-        quantity=Decimal("1000")
-    )
-except ConnectionError as e:
-    print(f"Failed to emit event: {e}")
-```
+---
 
 ## Configuration
 
-The SDK loads configuration from a YAML file. See the main Caracal documentation for configuration details.
+### Configuration File
 
-Example configuration:
+Default location: `~/.caracal/config.yaml`
 
 ```yaml
 storage:
@@ -209,23 +70,632 @@ logging:
   file: ~/.caracal/caracal.log
 ```
 
-## Examples
+### Custom Configuration Path
 
-See `examples/sdk_client_demo.py` for a complete demonstration of SDK usage.
+```python
+client = CaracalClient(config_path="/etc/caracal/config.yaml")
+```
 
-## Requirements Satisfied
+### Environment Variables
 
-This SDK implementation satisfies the following requirements:
+| Variable | Description |
+|----------|-------------|
+| `CARACAL_CONFIG` | Override default config path |
+| `DB_PASSWORD` | Database password |
 
-- **Requirement 7.5**: Provides `emit_event()` function for direct event emission
-- **Requirement 7.6**: Implements fail-closed semantics for connection errors
+---
 
-## Future Enhancements
+## API Reference
 
-The following features are planned for future releases:
+### CaracalClient
 
-- **Context Manager** (v0.1): Budget check context manager for wrapping agent code (Task 13)
-- **Async Support** (v0.2): Async/await support for non-blocking operations
-- **Batch Operations** (v0.2): Batch event emission for improved performance
-- **Retry Logic** (v0.2): Automatic retry with exponential backoff for transient failures
-- **Metrics Collection** (v0.3): Built-in metrics for SDK usage monitoring
+Main SDK client class.
+
+#### Constructor
+
+```python
+CaracalClient(config_path: Optional[str] = None)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `config_path` | str | `~/.caracal/config.yaml` | Path to configuration file |
+
+**Raises:**
+- `SDKConfigurationError` - Configuration is invalid
+- `ConnectionError` - Initialization fails (fail-closed)
+
+---
+
+### Methods Overview
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `emit_event()` | Record spending event | None |
+| `check_budget()` | Check if within budget | bool |
+| `get_remaining_budget()` | Get remaining budget | Decimal |
+| `budget_check()` | Context manager for budget checking | BudgetCheckContext |
+| `create_child_agent()` | Create child agent with delegation | Dict |
+| `get_delegation_token()` | Generate delegation token | str |
+| `query_spending_with_children()` | Aggregate spending with children | Dict |
+
+---
+
+### emit_event
+
+Record a spending event.
+
+```python
+emit_event(
+    agent_id: str,
+    resource_type: str,
+    quantity: Decimal,
+    metadata: Optional[Dict] = None
+) -> None
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|:--------:|-------------|
+| `agent_id` | str | Yes | Agent identifier |
+| `resource_type` | str | Yes | Resource type (e.g., `openai.gpt-4.output_tokens`) |
+| `quantity` | Decimal | Yes | Amount consumed |
+| `metadata` | Dict | No | Additional context |
+
+**Raises:**
+- `ConnectionError` - Event emission fails (fail-closed)
+
+<details>
+<summary>Example</summary>
+
+```python
+from decimal import Decimal
+from caracal.sdk.client import CaracalClient
+
+client = CaracalClient()
+
+client.emit_event(
+    agent_id="my-agent-id",
+    resource_type="openai.gpt-4.output_tokens",
+    quantity=Decimal("500"),
+    metadata={
+        "model": "gpt-4",
+        "request_id": "req_123",
+        "user": "user@example.com"
+    }
+)
+```
+
+</details>
+
+---
+
+### check_budget
+
+Check if an agent is within budget.
+
+```python
+check_budget(agent_id: str) -> bool
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|:--------:|-------------|
+| `agent_id` | str | Yes | Agent identifier |
+
+**Returns:** `True` if within budget, `False` otherwise.
+
+**Fail-Closed Behavior:**
+- Returns `False` if check fails
+- Returns `False` if no policy exists
+- Returns `False` on any error
+
+<details>
+<summary>Example</summary>
+
+```python
+client = CaracalClient()
+
+if client.check_budget("my-agent-id"):
+    # Agent is within budget
+    result = call_expensive_api()
+else:
+    # Budget exceeded or check failed
+    print("Budget exceeded")
+```
+
+</details>
+
+---
+
+### get_remaining_budget
+
+Get remaining budget for an agent.
+
+```python
+get_remaining_budget(agent_id: str) -> Optional[Decimal]
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|:--------:|-------------|
+| `agent_id` | str | Yes | Agent identifier |
+
+**Returns:** Remaining budget as `Decimal`, or `None` if check fails.
+
+<details>
+<summary>Example</summary>
+
+```python
+from decimal import Decimal
+
+client = CaracalClient()
+
+remaining = client.get_remaining_budget("my-agent-id")
+
+if remaining and remaining > Decimal("10.00"):
+    # Sufficient budget
+    result = call_expensive_api()
+else:
+    print(f"Insufficient budget: {remaining}")
+```
+
+</details>
+
+---
+
+### budget_check
+
+Context manager for budget checking.
+
+```python
+budget_check(agent_id: str) -> BudgetCheckContext
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|:--------:|-------------|
+| `agent_id` | str | Yes | Agent identifier |
+
+**Returns:** `BudgetCheckContext` context manager.
+
+**Raises:**
+- `BudgetExceededError` - On context entry if budget exceeded
+
+<details>
+<summary>Example</summary>
+
+```python
+from decimal import Decimal
+from caracal.exceptions import BudgetExceededError
+
+client = CaracalClient()
+
+try:
+    with client.budget_check(agent_id="my-agent"):
+        # Code that incurs costs
+        result = call_expensive_api()
+        
+        # Emit metering event manually
+        client.emit_event(
+            agent_id="my-agent",
+            resource_type="openai.gpt-4.output_tokens",
+            quantity=Decimal("500")
+        )
+except BudgetExceededError as e:
+    print(f"Budget exceeded: {e}")
+```
+
+</details>
+
+---
+
+### create_child_agent
+
+Create a child agent with optional delegated budget.
+
+```python
+create_child_agent(
+    parent_agent_id: str,
+    child_name: str,
+    child_owner: str,
+    delegated_budget: Optional[Decimal] = None,
+    budget_currency: str = "USD",
+    budget_time_window: str = "daily",
+    metadata: Optional[Dict] = None
+) -> Dict[str, Any]
+```
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `parent_agent_id` | str | Yes | - | Parent agent ID |
+| `child_name` | str | Yes | - | Unique child name |
+| `child_owner` | str | Yes | - | Owner identifier |
+| `delegated_budget` | Decimal | No | None | Budget to delegate |
+| `budget_currency` | str | No | USD | Currency code |
+| `budget_time_window` | str | No | daily | Time window |
+| `metadata` | Dict | No | None | Agent metadata |
+
+**Returns:** Dictionary with child agent details.
+
+| Return Field | Description |
+|--------------|-------------|
+| `agent_id` | Child agent ID |
+| `name` | Child name |
+| `owner` | Child owner |
+| `parent_agent_id` | Parent ID |
+| `delegation_token` | JWT token (if budget specified) |
+| `policy_id` | Policy ID (if budget specified) |
+
+<details>
+<summary>Example</summary>
+
+```python
+from decimal import Decimal
+
+client = CaracalClient()
+
+child = client.create_child_agent(
+    parent_agent_id="parent-uuid",
+    child_name="worker-1",
+    child_owner="team@example.com",
+    delegated_budget=Decimal("100.00"),
+    budget_currency="USD",
+    budget_time_window="daily"
+)
+
+print(f"Created child: {child['agent_id']}")
+print(f"Delegation token: {child['delegation_token']}")
+```
+
+</details>
+
+---
+
+### get_delegation_token
+
+Generate delegation token for existing child agent.
+
+```python
+get_delegation_token(
+    parent_agent_id: str,
+    child_agent_id: str,
+    spending_limit: Decimal,
+    currency: str = "USD",
+    expiration_seconds: int = 86400,
+    allowed_operations: Optional[List[str]] = None
+) -> Optional[str]
+```
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `parent_agent_id` | str | Yes | - | Parent agent ID |
+| `child_agent_id` | str | Yes | - | Child agent ID |
+| `spending_limit` | Decimal | Yes | - | Maximum spending |
+| `currency` | str | No | USD | Currency code |
+| `expiration_seconds` | int | No | 86400 | Token validity (24h default) |
+| `allowed_operations` | List[str] | No | None | Allowed operations |
+
+**Returns:** JWT delegation token string.
+
+<details>
+<summary>Example</summary>
+
+```python
+from decimal import Decimal
+
+client = CaracalClient()
+
+token = client.get_delegation_token(
+    parent_agent_id="parent-uuid",
+    child_agent_id="child-uuid",
+    spending_limit=Decimal("50.00"),
+    currency="USD",
+    expiration_seconds=3600  # 1 hour
+)
+
+print(f"Token: {token}")
+```
+
+</details>
+
+---
+
+### query_spending_with_children
+
+Query spending for agent including all children.
+
+```python
+query_spending_with_children(
+    agent_id: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    include_breakdown: bool = False
+) -> Dict[str, Any]
+```
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `agent_id` | str | Yes | - | Parent agent ID |
+| `start_time` | datetime | No | Start of day | Query start |
+| `end_time` | datetime | No | Now | Query end |
+| `include_breakdown` | bool | No | False | Include hierarchy |
+
+**Returns:** Spending summary dictionary.
+
+| Return Field | Description |
+|--------------|-------------|
+| `agent_id` | Parent agent ID |
+| `own_spending` | Parent's own spending |
+| `children_spending` | Total child spending |
+| `total_spending` | Combined spending |
+| `agent_count` | Number of agents included |
+| `breakdown` | Hierarchical breakdown (if requested) |
+
+<details>
+<summary>Example</summary>
+
+```python
+from datetime import datetime, timedelta
+
+client = CaracalClient()
+
+end = datetime.utcnow()
+start = end - timedelta(days=1)
+
+result = client.query_spending_with_children(
+    agent_id="parent-uuid",
+    start_time=start,
+    end_time=end,
+    include_breakdown=True
+)
+
+print(f"Total: {result['total_spending']}")
+print(f"Parent: {result['own_spending']}")
+print(f"Children: {result['children_spending']}")
+```
+
+</details>
+
+---
+
+## Accessing Caracal Data
+
+The SDK provides access to internal components for advanced use cases.
+
+### Get Agent List
+
+<details>
+<summary>Example</summary>
+
+```python
+client = CaracalClient()
+
+# Access agent registry directly
+agents = client.agent_registry.list_agents()
+
+for agent in agents:
+    print(f"Agent: {agent.name} ({agent.agent_id})")
+    print(f"  Owner: {agent.owner}")
+    print(f"  Parent: {agent.parent_agent_id}")
+```
+
+</details>
+
+### Get Policies for Agent
+
+<details>
+<summary>Example</summary>
+
+```python
+client = CaracalClient()
+
+# Get policies for a specific agent
+policies = client.policy_store.get_policies("agent-uuid")
+
+for policy in policies:
+    print(f"Policy: {policy.policy_id}")
+    print(f"  Limit: {policy.limit_amount} {policy.currency}")
+    print(f"  Window: {policy.time_window}")
+```
+
+</details>
+
+### Query Ledger Events
+
+<details>
+<summary>Example</summary>
+
+```python
+from datetime import datetime, timedelta
+
+client = CaracalClient()
+
+end = datetime.utcnow()
+start = end - timedelta(hours=1)
+
+# Query recent events
+events = client.ledger_query.query_events(
+    agent_id="agent-uuid",
+    start_time=start,
+    end_time=end
+)
+
+for event in events:
+    print(f"Event: {event.event_id}")
+    print(f"  Amount: {event.amount}")
+    print(f"  Operation: {event.operation_type}")
+```
+
+</details>
+
+### Get Pricebook Entries
+
+<details>
+<summary>Example</summary>
+
+```python
+client = CaracalClient()
+
+# List all prices
+prices = client.pricebook.list_prices()
+
+for price in prices:
+    print(f"{price.resource_type}: ${price.price}")
+
+# Get specific price
+gpt4_price = client.pricebook.get_price("openai.gpt-4.output_tokens")
+print(f"GPT-4 output: ${gpt4_price.price} per token")
+```
+
+</details>
+
+---
+
+## Fail-Closed Semantics
+
+The SDK implements fail-closed behavior to prevent unchecked spending.
+
+| Scenario | Behavior |
+|----------|----------|
+| Initialization failure | Raises `ConnectionError` |
+| Event emission failure | Raises `ConnectionError` |
+| Budget check failure | Returns `False` (deny) |
+| Missing policy | Returns `False` (deny) |
+| Any unexpected error | Deny/raise exception |
+
+---
+
+## Error Handling
+
+<details>
+<summary>Example Error Handling</summary>
+
+```python
+from caracal.sdk.client import CaracalClient
+from caracal.exceptions import (
+    ConnectionError,
+    BudgetExceededError,
+    SDKConfigurationError
+)
+
+# Handle initialization errors
+try:
+    client = CaracalClient(config_path="/invalid/path.yaml")
+except SDKConfigurationError as e:
+    print(f"Configuration error: {e}")
+except ConnectionError as e:
+    print(f"Connection error: {e}")
+
+# Handle event emission errors
+try:
+    client.emit_event(
+        agent_id="my-agent",
+        resource_type="openai.gpt-4.input_tokens",
+        quantity=Decimal("1000")
+    )
+except ConnectionError as e:
+    print(f"Failed to emit event: {e}")
+
+# Handle budget check errors
+try:
+    with client.budget_check("my-agent"):
+        result = call_api()
+except BudgetExceededError as e:
+    print(f"Budget exceeded: {e}")
+```
+
+</details>
+
+---
+
+## Integration Examples
+
+### With OpenAI
+
+<details>
+<summary>OpenAI Integration</summary>
+
+```python
+from decimal import Decimal
+import openai
+from caracal.sdk.client import CaracalClient
+
+client = CaracalClient()
+AGENT_ID = "my-agent"
+
+def chat_with_budget(messages):
+    # Check budget first
+    if not client.check_budget(AGENT_ID):
+        raise Exception("Budget exceeded")
+    
+    # Call OpenAI
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=messages
+    )
+    
+    # Calculate tokens
+    input_tokens = response.usage.prompt_tokens
+    output_tokens = response.usage.completion_tokens
+    
+    # Record spending
+    client.emit_event(
+        agent_id=AGENT_ID,
+        resource_type="openai.gpt-4.input_tokens",
+        quantity=Decimal(str(input_tokens))
+    )
+    client.emit_event(
+        agent_id=AGENT_ID,
+        resource_type="openai.gpt-4.output_tokens",
+        quantity=Decimal(str(output_tokens))
+    )
+    
+    return response.choices[0].message.content
+```
+
+</details>
+
+### With LangChain
+
+<details>
+<summary>LangChain Integration</summary>
+
+```python
+from decimal import Decimal
+from langchain.callbacks.base import BaseCallbackHandler
+from caracal.sdk.client import CaracalClient
+
+class CaracalCallback(BaseCallbackHandler):
+    def __init__(self, agent_id: str):
+        self.client = CaracalClient()
+        self.agent_id = agent_id
+    
+    def on_llm_end(self, response, **kwargs):
+        # Get token counts from response
+        if hasattr(response, 'llm_output'):
+            usage = response.llm_output.get('token_usage', {})
+            
+            if 'prompt_tokens' in usage:
+                self.client.emit_event(
+                    agent_id=self.agent_id,
+                    resource_type="openai.gpt-4.input_tokens",
+                    quantity=Decimal(str(usage['prompt_tokens']))
+                )
+            
+            if 'completion_tokens' in usage:
+                self.client.emit_event(
+                    agent_id=self.agent_id,
+                    resource_type="openai.gpt-4.output_tokens",
+                    quantity=Decimal(str(usage['completion_tokens']))
+                )
+
+# Usage
+callback = CaracalCallback("my-agent")
+llm = ChatOpenAI(callbacks=[callback])
+```
+
+</details>
+
+---
+
+## See Also
+
+- [MCP Integration](/caracalCore/apiReference/mcpIntegration) - Model Context Protocol
+- [CLI Reference](/caracalCore/cliReference/) - Command-line tools
