@@ -78,7 +78,7 @@ database:
 | `CARACAL_AGENT_REGISTRY` | Path to agents.json | ~/.caracal/agents.json | No |
 | `CARACAL_POLICY_STORE` | Path to policies.json | ~/.caracal/policies.json | No |
 | `CARACAL_LEDGER` | Path to ledger.jsonl | ~/.caracal/ledger.jsonl | No |
-| `CARACAL_PRICEBOOK` | Path to pricebook.csv | ~/.caracal/pricebook.csv | No |
+
 | `CARACAL_BACKUP_DIR` | Path to backup directory | ~/.caracal/backups | No |
 
 ## Logging Configuration
@@ -144,7 +144,7 @@ storage:
   agent_registry: ${CARACAL_AGENT_REGISTRY:~/.caracal/agents.json}
   policy_store: ${CARACAL_POLICY_STORE:~/.caracal/policies.json}
   ledger: ${CARACAL_LEDGER:~/.caracal/ledger.jsonl}
-  pricebook: ${CARACAL_PRICEBOOK:~/.caracal/pricebook.csv}
+
   backup_dir: ${CARACAL_BACKUP_DIR:~/.caracal/backups}
 ```
 

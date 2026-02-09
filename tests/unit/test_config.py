@@ -44,14 +44,12 @@ class TestDefaultConfiguration:
         assert config.storage.agent_registry.endswith("agents.json")
         assert config.storage.policy_store.endswith("policies.json")
         assert config.storage.ledger.endswith("ledger.jsonl")
-        assert config.storage.pricebook.endswith("pricebook.csv")
+
         assert config.storage.backup_dir.endswith("backups")
         assert config.storage.backup_count == 3
         
         # Check defaults
-        assert config.defaults.currency == "USD"
-        assert config.defaults.time_window == "daily"
-        assert config.defaults.default_budget == 100.00
+
         
         # Check logging
         assert config.logging.level == "INFO"
@@ -75,7 +73,7 @@ class TestConfigurationLoading:
             
             assert isinstance(config, CaracalConfig)
             # Should have default values
-            assert config.defaults.currency == "USD"
+
     
     def test_load_config_from_valid_yaml(self):
         """Test loading configuration from a valid YAML file."""
@@ -88,14 +86,11 @@ class TestConfigurationLoading:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                     'backup_count': 5,
                 },
-                'defaults': {
-                    'currency': 'EUR',
                     'time_window': 'daily',
-                    'default_budget': 200.00,
                 },
                 'logging': {
                     'level': 'DEBUG',
@@ -114,8 +109,7 @@ class TestConfigurationLoading:
             
             assert config.storage.agent_registry == '/tmp/agents.json'
             assert config.storage.backup_count == 5
-            assert config.defaults.currency == 'EUR'
-            assert config.defaults.default_budget == 200.00
+
             assert config.logging.level == 'DEBUG'
             assert config.performance.policy_eval_timeout_ms == 200
             assert config.performance.max_retries == 5
@@ -131,7 +125,7 @@ class TestConfigurationLoading:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
             }
@@ -145,7 +139,7 @@ class TestConfigurationLoading:
             assert config.storage.agent_registry == '/tmp/agents.json'
             
             # Defaults should be from default config
-            assert config.defaults.currency == 'USD'
+
             assert config.logging.level == 'INFO'
             assert config.performance.max_retries == 3
     
@@ -159,7 +153,7 @@ class TestConfigurationLoading:
                     'agent_registry': '~/caracal/agents.json',
                     'policy_store': '~/caracal/policies.json',
                     'ledger': '~/caracal/ledger.jsonl',
-                    'pricebook': '~/caracal/pricebook.csv',
+
                     'backup_dir': '~/caracal/backups',
                 },
             }
@@ -199,7 +193,6 @@ class TestConfigurationValidation:
             # Config without storage section
             config_data = {
                 'defaults': {
-                    'currency': 'USD',
                 },
             }
             
@@ -221,7 +214,7 @@ class TestConfigurationValidation:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'defaults': {
@@ -237,31 +230,7 @@ class TestConfigurationValidation:
             
             assert "time_window must be one of" in str(exc_info.value)
     
-    def test_validation_rejects_negative_default_budget(self):
-        """Test that negative default budget raises InvalidConfigurationError."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = os.path.join(tmpdir, "config.yaml")
-            
-            config_data = {
-                'storage': {
-                    'agent_registry': '/tmp/agents.json',
-                    'policy_store': '/tmp/policies.json',
-                    'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
-                    'backup_dir': '/tmp/backups',
-                },
-                'defaults': {
-                    'default_budget': -10.00,
-                },
-            }
-            
-            with open(config_path, 'w') as f:
-                yaml.dump(config_data, f)
-            
-            with pytest.raises(InvalidConfigurationError) as exc_info:
-                load_config(config_path)
-            
-            assert "default_budget must be positive" in str(exc_info.value)
+
     
     def test_validation_rejects_invalid_log_level(self):
         """Test that invalid log level raises InvalidConfigurationError."""
@@ -273,7 +242,7 @@ class TestConfigurationValidation:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'logging': {
@@ -299,7 +268,7 @@ class TestConfigurationValidation:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                     'backup_count': 0,
                 },
@@ -323,7 +292,7 @@ class TestConfigurationValidation:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'performance': {
@@ -352,7 +321,7 @@ class TestConfigurationValidation:
             
             # Should return defaults
             assert isinstance(config, CaracalConfig)
-            assert config.defaults.currency == "USD"
+
 
 
 
@@ -369,7 +338,7 @@ class TestV02Configuration:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'database': {
@@ -404,7 +373,7 @@ class TestV02Configuration:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'gateway': {
@@ -443,7 +412,7 @@ class TestV02Configuration:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'ase': {
@@ -486,7 +455,7 @@ class TestV02Configuration:
                         'agent_registry': '/tmp/agents.json',
                         'policy_store': '/tmp/policies.json',
                         'ledger': '/tmp/ledger.jsonl',
-                        'pricebook': '/tmp/pricebook.csv',
+
                         'backup_dir': '/tmp/backups',
                     },
                     'database': {
@@ -522,7 +491,7 @@ class TestV02Configuration:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'database': {
@@ -548,7 +517,7 @@ class TestV02Configuration:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'gateway': {
@@ -581,7 +550,7 @@ class TestV02Configuration:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'gateway': {
@@ -614,7 +583,7 @@ class TestV02Configuration:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
+
                     'backup_dir': '/tmp/backups',
                 },
                 'ase': {

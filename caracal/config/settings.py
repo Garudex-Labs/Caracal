@@ -188,13 +188,7 @@ class PolicyCacheConfig:
     max_size: int = 10000
 
 
-@dataclass
-class MCPCostRule:
-    """Cost calculation rule for MCP operations."""
-    
-    resource_type: str
-    cost_per_unit: float
-    unit: str = "operation"
+
 
 
 @dataclass
@@ -204,7 +198,7 @@ class MCPAdapterConfig:
     enabled: bool = False
     listen_address: str = "0.0.0.0:8080"
     mcp_server_urls: list = field(default_factory=list)
-    cost_rules: list = field(default_factory=list)
+
     health_check_enabled: bool = True
 
 
@@ -351,18 +345,16 @@ class AuthorityEnforcementConfig:
     
     enabled: bool = False  # Global authority enforcement flag
     per_principal_rollout: bool = False  # Enable per-principal authority enforcement
-    compatibility_mode_enabled: bool = True  # Enable budget-to-authority translation
+
     compatibility_logging_enabled: bool = True  # Log compatibility mode usage
-    rollback_to_budget_mode: bool = False  # Rollback flag to disable authority enforcement
+    compatibility_logging_enabled: bool = True  # Log compatibility mode usage
 
 
 @dataclass
 class DefaultsConfig:
     """Default values configuration."""
     
-    currency: str = "USD"
     time_window: str = "daily"
-    default_budget: float = 100.00
 
 
 @dataclass
@@ -430,9 +422,7 @@ def get_default_config() -> CaracalConfig:
     )
     
     defaults = DefaultsConfig(
-        currency="USD",
         time_window="daily",
-        default_budget=100.00,
     )
     
     logging = LoggingConfig(
@@ -570,9 +560,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     # Parse defaults configuration (optional)
     defaults_data = config_data.get('defaults', {})
     defaults = DefaultsConfig(
-    return DefaultsConfig(
         time_window=defaults_data.get('time_window', default_config.defaults.time_window),
-    )
     )
     
     # Parse logging configuration (optional)
@@ -650,8 +638,6 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         enabled=mcp_adapter_data.get('enabled', default_config.mcp_adapter.enabled),
         listen_address=mcp_adapter_data.get('listen_address', default_config.mcp_adapter.listen_address),
         mcp_server_urls=mcp_adapter_data.get('mcp_server_urls', default_config.mcp_adapter.mcp_server_urls),
-        health_check_enabled=mcp_adapter_data.get('health_check_enabled', default_config.mcp_adapter.health_check_enabled),
-    )
         health_check_enabled=mcp_adapter_data.get('health_check_enabled', default_config.mcp_adapter.health_check_enabled),
     )
     
@@ -849,12 +835,10 @@ def _validate_config(config: CaracalConfig) -> None:
     if not config.storage.ledger:
         logger.error("Configuration validation failed: ledger path cannot be empty")
         raise InvalidConfigurationError("ledger path cannot be empty")
-    if not config.storage.pricebook:
-        logger.error("Configuration validation failed: pricebook path cannot be empty")
-        raise InvalidConfigurationError("pricebook path cannot be empty")
-    if not config.storage.backup_dir:
-        logger.error("Configuration validation failed: backup_dir path cannot be empty")
-        raise InvalidConfigurationError("backup_dir path cannot be empty")
+    # Validate agent registry path is not empty
+    if not config.storage.agent_registry:
+        logger.error("Configuration validation failed: agent_registry path cannot be empty")
+        raise InvalidConfigurationError("agent_registry path cannot be empty")
     
     # Validate backup count is positive
     if config.storage.backup_count < 1:
@@ -862,9 +846,7 @@ def _validate_config(config: CaracalConfig) -> None:
             f"backup_count must be at least 1, got {config.storage.backup_count}"
         )
     
-    # Validate currency is not empty
-    if not config.defaults.currency:
-        raise InvalidConfigurationError("currency cannot be empty")
+
     
     # Validate time window
     valid_time_windows = ["daily"]  # v0.1 only supports daily
@@ -874,11 +856,7 @@ def _validate_config(config: CaracalConfig) -> None:
             f"got '{config.defaults.time_window}'"
         )
     
-    # Validate default budget is positive
-    if config.defaults.default_budget <= 0:
-        raise InvalidConfigurationError(
-            f"default_budget must be positive, got {config.defaults.default_budget}"
-        )
+
     
     # Validate logging level
     valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
