@@ -5,26 +5,18 @@ Loads YAML configuration from file with sensible defaults and validation.
 Supports environment variable substitution using ${ENV_VAR} syntax.
 Supports encrypted configuration values using ENC[...] syntax.
 """
-
-
-print("DEBUG: Importing os")
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-print("DEBUG: Importing yaml")
-
 import yaml
 
 from caracal.exceptions import ConfigurationError, InvalidConfigurationError
-print("DEBUG: Importing logging_config")
 from caracal.logging_config import get_logger
-print("DEBUG: Getting logger")
 
 logger = get_logger(__name__)
-print("DEBUG: Logger got")
 
 
 def _expand_env_vars(value: Any) -> Any:
