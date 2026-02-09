@@ -358,6 +358,17 @@ class CompatibilityConfig:
 
 
 @dataclass
+class AuthorityEnforcementConfig:
+    """Authority enforcement feature flags for gradual rollout."""
+    
+    enabled: bool = False  # Global authority enforcement flag
+    per_principal_rollout: bool = False  # Enable per-principal authority enforcement
+    compatibility_mode_enabled: bool = True  # Enable budget-to-authority translation
+    compatibility_logging_enabled: bool = True  # Log compatibility mode usage
+    rollback_to_budget_mode: bool = False  # Rollback flag to disable authority enforcement
+
+
+@dataclass
 class DefaultsConfig:
     """Default values configuration."""
     
@@ -405,6 +416,7 @@ class CaracalConfig:
     allowlist: AllowlistConfig = field(default_factory=AllowlistConfig)
     event_replay: EventReplayConfig = field(default_factory=EventReplayConfig)
     compatibility: CompatibilityConfig = field(default_factory=CompatibilityConfig)
+    authority_enforcement: AuthorityEnforcementConfig = field(default_factory=AuthorityEnforcementConfig)
 
 
 def get_default_config_path() -> str:
@@ -789,6 +801,16 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         warn_on_v02_mode=compatibility_data.get('warn_on_v02_mode', default_config.compatibility.warn_on_v02_mode),
     )
     
+    # Parse authority enforcement configuration (optional, for v0.5 authority enforcement)
+    authority_enforcement_data = config_data.get('authority_enforcement', {})
+    authority_enforcement = AuthorityEnforcementConfig(
+        enabled=authority_enforcement_data.get('enabled', default_config.authority_enforcement.enabled),
+        per_principal_rollout=authority_enforcement_data.get('per_principal_rollout', default_config.authority_enforcement.per_principal_rollout),
+        compatibility_mode_enabled=authority_enforcement_data.get('compatibility_mode_enabled', default_config.authority_enforcement.compatibility_mode_enabled),
+        compatibility_logging_enabled=authority_enforcement_data.get('compatibility_logging_enabled', default_config.authority_enforcement.compatibility_logging_enabled),
+        rollback_to_budget_mode=authority_enforcement_data.get('rollback_to_budget_mode', default_config.authority_enforcement.rollback_to_budget_mode),
+    )
+    
     # Log warnings if running in v0.2 compatibility mode
     if compatibility.mode == "v0.2" and compatibility.warn_on_v02_mode:
         logger.warning("Running in v0.2 compatibility mode - some v0.3 features are disabled")
@@ -798,6 +820,16 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
             logger.warning("Merkle tree ledger is disabled - no cryptographic tamper-evidence")
         if not compatibility.enable_redis:
             logger.warning("Redis caching is disabled - using PostgreSQL for all queries")
+    
+    # Log warnings for authority enforcement configuration
+    if authority_enforcement.rollback_to_budget_mode:
+        logger.warning("Authority enforcement rollback enabled - using budget enforcement mode")
+    elif authority_enforcement.enabled:
+        logger.info("Authority enforcement enabled")
+        if authority_enforcement.per_principal_rollout:
+            logger.info("Per-principal authority enforcement rollout enabled")
+        if authority_enforcement.compatibility_mode_enabled:
+            logger.info("Budget-to-authority compatibility mode enabled")
     
     return CaracalConfig(
         storage=storage,
@@ -816,6 +848,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         allowlist=allowlist,
         event_replay=event_replay,
         compatibility=compatibility,
+        authority_enforcement=authority_enforcement,
     )
 
 
