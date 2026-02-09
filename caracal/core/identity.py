@@ -300,8 +300,6 @@ class AgentRegistry:
         self,
         parent_agent_id: str,
         child_agent_id: str,
-        spending_limit: float,
-        currency: str = "USD",
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None
     ) -> Optional[str]:
@@ -311,8 +309,6 @@ class AgentRegistry:
         Args:
             parent_agent_id: Parent agent ID (issuer)
             child_agent_id: Child agent ID (subject)
-            spending_limit: Maximum spending allowed
-            currency: Currency code (default: "USD")
             expiration_seconds: Token validity duration (default: 86400 = 24 hours)
             allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
             
@@ -343,14 +339,11 @@ class AgentRegistry:
             )
         
         # Generate token
-        from decimal import Decimal
         from uuid import UUID
         
         token = self.delegation_token_manager.generate_token(
             parent_agent_id=UUID(parent_agent_id),
             child_agent_id=UUID(child_agent_id),
-            spending_limit=Decimal(str(spending_limit)),
-            currency=currency,
             expiration_seconds=expiration_seconds,
             allowed_operations=allowed_operations
         )
@@ -362,8 +355,6 @@ class AgentRegistry:
         child.metadata["delegation_tokens"].append({
             "token_id": token[:20] + "...",  # Store truncated token for reference
             "parent_agent_id": parent_agent_id,
-            "spending_limit": spending_limit,
-            "currency": currency,
             "created_at": datetime.utcnow().isoformat() + "Z",
             "expires_in_seconds": expiration_seconds
         })
@@ -376,8 +367,7 @@ class AgentRegistry:
             # Don't fail - token is still valid even if metadata not persisted
         
         logger.info(
-            f"Generated delegation token: parent={parent_agent_id}, child={child_agent_id}, "
-            f"limit={spending_limit} {currency}"
+            f"Generated delegation token: parent={parent_agent_id}, child={child_agent_id}"
         )
         
         return token
