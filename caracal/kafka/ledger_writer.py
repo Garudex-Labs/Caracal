@@ -201,11 +201,8 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
         - event_type: str (must be 'metering')
         - resource_type: str
         - quantity: float
-        - cost: float
-        - currency: str
         
         Optional fields:
-        - provisional_charge_id: str (UUID)
         - metadata: dict
         
         Args:
@@ -221,7 +218,6 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
             'timestamp',
             'agent_id',
             'event_type',
-            'resource_type',
             'resource_type',
             'quantity'
         ]
