@@ -79,11 +79,12 @@ class FlowApp:
     def _handle_selection(self, selection: str) -> None:
         """Handle main menu selection."""
         handlers = {
-            "agents": self._run_agent_flow,
-            "policies": self._run_policy_flow,
-            "ledger": self._run_ledger_flow,
-            "pricebook": self._run_pricebook_flow,
-            "delegation": self._run_delegation_flow,
+            "principals": self._run_principal_flow,
+            "policies": self._run_authority_policy_flow,
+            "ledger": self._run_authority_ledger_flow,
+            "mandates": self._run_mandate_flow,
+            "delegation": self._run_mandate_delegation_flow,
+            "enterprise": self._run_enterprise_flow,
             "settings": self._run_settings_flow,
             "help": self._run_help_flow,
         }
@@ -92,30 +93,35 @@ class FlowApp:
         if handler:
             handler()
     
-    def _run_agent_flow(self) -> None:
-        """Run agent management flow."""
-        from caracal.flow.screens.agent_flow import run_agent_flow
-        run_agent_flow(self.console, self.state)
+    def _run_principal_flow(self) -> None:
+        """Run principal management flow."""
+        from caracal.flow.screens.principal_flow import run_principal_flow
+        run_principal_flow(self.console, self.state)
     
-    def _run_policy_flow(self) -> None:
-        """Run policy management flow."""
-        from caracal.flow.screens.policy_flow import run_policy_flow
-        run_policy_flow(self.console, self.state)
+    def _run_authority_policy_flow(self) -> None:
+        """Run authority policy management flow."""
+        from caracal.flow.screens.authority_policy_flow import run_authority_policy_flow
+        run_authority_policy_flow(self.console, self.state)
     
-    def _run_ledger_flow(self) -> None:
-        """Run ledger explorer flow."""
-        from caracal.flow.screens.ledger_flow import run_ledger_flow
-        run_ledger_flow(self.console)
+    def _run_authority_ledger_flow(self) -> None:
+        """Run authority ledger explorer flow."""
+        from caracal.flow.screens.authority_ledger_flow import run_authority_ledger_flow
+        run_authority_ledger_flow(self.console)
     
-    def _run_pricebook_flow(self) -> None:
-        """Run pricebook editor flow."""
-        from caracal.flow.screens.pricebook_flow import run_pricebook_flow
-        run_pricebook_flow(self.console)
+    def _run_mandate_flow(self) -> None:
+        """Run mandate manager flow."""
+        from caracal.flow.screens.mandate_flow import run_mandate_flow
+        run_mandate_flow(self.console)
     
-    def _run_delegation_flow(self) -> None:
-        """Run delegation center flow."""
-        from caracal.flow.screens.delegation_flow import run_delegation_flow
-        run_delegation_flow(self.console)
+    def _run_mandate_delegation_flow(self) -> None:
+        """Run mandate delegation center flow."""
+        from caracal.flow.screens.mandate_delegation_flow import run_mandate_delegation_flow
+        run_mandate_delegation_flow(self.console)
+    
+    def _run_enterprise_flow(self) -> None:
+        """Run enterprise features flow."""
+        from caracal.flow.screens.enterprise_flow import show_enterprise_flow
+        show_enterprise_flow(self.console)
     
     def _run_settings_flow(self) -> None:
         """Run settings flow."""
