@@ -263,3 +263,39 @@ class TamperDetectedError(MerkleError):
 class BackfillError(MerkleError):
     """Raised when ledger backfill operations fail."""
     pass
+
+
+# Authority Enforcement Errors
+class AuthorityError(CaracalError):
+    """Base exception for authority enforcement-related errors."""
+    pass
+
+
+class AuthorityDeniedError(AuthorityError):
+    """Raised when authority validation fails and action is denied."""
+    pass
+
+
+class MandateNotFoundError(AuthorityError):
+    """Raised when a mandate is not found."""
+    pass
+
+
+class MandateExpiredError(AuthorityError):
+    """Raised when a mandate has expired."""
+    pass
+
+
+class MandateRevokedError(AuthorityError):
+    """Raised when a mandate has been revoked."""
+    pass
+
+
+class InvalidMandateError(AuthorityError):
+    """Raised when a mandate is invalid or malformed."""
+    pass
+
+
+class DelegationError(AuthorityError):
+    """Raised when delegation operations fail."""
+    pass
