@@ -8,7 +8,7 @@
 
 <div align="center">
 
-**The Economic Control Plane for AI Agents**
+**Pre-execution authority enforcement for AI agents**
 
 </div>
 
@@ -28,9 +28,7 @@
 
 ## Overview
 
-**Caracal** is the infrastructure layer for the Agentic Economy. It serves as a centralized economic control plane that allows developers and enterprises to enforce budgets, meter usage in real-time, and manage secure ledgers for autonomous AI agents.
-
-As agents transition from chat interfaces to autonomous execution, economic safety becomes critical. Caracal ensures agents operate within defined financial and computational boundaries using dynamic access tokens and ephemeral credentials, preventing runaway API costs and unauthorized transactions.
+**Caracal** is a pre-execution authority enforcement system for AI agents and automated software operating in production environments. It exists at the exact boundary where decisions turn into irreversible actions such as API calls, database writes, deployments, workflow triggers, financial operations, or any action that can create real impact. Instead of relying on standing credentials, broad roles, or static permissions, Caracal enforces a single rule: no action executes unless there is explicit, valid authority for that action at that moment.
 
 ---
 
