@@ -696,3 +696,363 @@ def log_dlq_event(
     
     logger.warning("dlq_event", **log_data)
 
+
+
+# v0.5 Authority Enforcement Structured Logging Functions
+
+def log_authority_decision(
+    logger: structlog.stdlib.BoundLogger,
+    decision_outcome: str,
+    principal_id: str,
+    mandate_id: Optional[str] = None,
+    action: Optional[str] = None,
+    resource: Optional[str] = None,
+    denial_reason: Optional[str] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log an authority decision.
+    
+    Args:
+        logger: Logger instance
+        decision_outcome: Decision outcome ("allowed" or "denied")
+        principal_id: Principal ID
+        mandate_id: Mandate ID if applicable
+        action: Requested action
+        resource: Requested resource
+        denial_reason: Reason for denial if denied
+        **kwargs: Additional context to log
+        
+    Requirements: 15.6, 15.7
+    """
+    # Get correlation ID from context
+    correlation_id = get_correlation_id()
+    
+    log_data: Dict[str, Any] = {
+        "event_type": "authority_decision",
+        "decision_outcome": decision_outcome,
+        "principal_id": principal_id,
+        "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
+    }
+    
+    if mandate_id is not None:
+        log_data["mandate_id"] = mandate_id
+    if action is not None:
+        log_data["action"] = action
+    if resource is not None:
+        log_data["resource"] = resource
+    if denial_reason is not None:
+        log_data["denial_reason"] = denial_reason
+    if correlation_id is not None:
+        log_data["correlation_id"] = correlation_id
+    
+    log_data.update(kwargs)
+    
+    if decision_outcome == "allowed":
+        logger.info("authority_decision_allowed", **log_data)
+    else:
+        logger.warning("authority_decision_denied", **log_data)
+
+
+def log_mandate_issuance(
+    logger: structlog.stdlib.BoundLogger,
+    mandate_id: str,
+    issuer_id: str,
+    subject_id: str,
+    resource_scope: list,
+    action_scope: list,
+    validity_seconds: int,
+    parent_mandate_id: Optional[str] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a mandate issuance.
+    
+    Args:
+        logger: Logger instance
+        mandate_id: Mandate ID
+        issuer_id: Issuer principal ID
+        subject_id: Subject principal ID
+        resource_scope: Resource scope list
+        action_scope: Action scope list
+        validity_seconds: Validity period in seconds
+        parent_mandate_id: Parent mandate ID if delegated
+        **kwargs: Additional context to log
+        
+    Requirements: 15.6, 15.7
+    """
+    correlation_id = get_correlation_id()
+    
+    log_data: Dict[str, Any] = {
+        "event_type": "mandate_issuance",
+        "mandate_id": mandate_id,
+        "issuer_id": issuer_id,
+        "subject_id": subject_id,
+        "resource_scope": resource_scope,
+        "action_scope": action_scope,
+        "validity_seconds": validity_seconds,
+        "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
+    }
+    
+    if parent_mandate_id is not None:
+        log_data["parent_mandate_id"] = parent_mandate_id
+        log_data["is_delegated"] = True
+    else:
+        log_data["is_delegated"] = False
+    
+    if correlation_id is not None:
+        log_data["correlation_id"] = correlation_id
+    
+    log_data.update(kwargs)
+    
+    logger.info("mandate_issued", **log_data)
+
+
+def log_mandate_validation(
+    logger: structlog.stdlib.BoundLogger,
+    mandate_id: str,
+    principal_id: str,
+    action: str,
+    resource: str,
+    decision: str,
+    denial_reason: Optional[str] = None,
+    duration_ms: Optional[float] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a mandate validation attempt.
+    
+    Args:
+        logger: Logger instance
+        mandate_id: Mandate ID
+        principal_id: Principal ID
+        action: Requested action
+        resource: Requested resource
+        decision: Validation decision ("allowed" or "denied")
+        denial_reason: Reason for denial if denied
+        duration_ms: Validation duration in milliseconds
+        **kwargs: Additional context to log
+        
+    Requirements: 15.6, 15.7
+    """
+    correlation_id = get_correlation_id()
+    
+    log_data: Dict[str, Any] = {
+        "event_type": "mandate_validation",
+        "mandate_id": mandate_id,
+        "principal_id": principal_id,
+        "action": action,
+        "resource": resource,
+        "decision": decision,
+        "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
+    }
+    
+    if denial_reason is not None:
+        log_data["denial_reason"] = denial_reason
+    if duration_ms is not None:
+        log_data["duration_ms"] = duration_ms
+    if correlation_id is not None:
+        log_data["correlation_id"] = correlation_id
+    
+    log_data.update(kwargs)
+    
+    if decision == "allowed":
+        logger.info("mandate_validation_allowed", **log_data)
+    else:
+        logger.warning("mandate_validation_denied", **log_data)
+
+
+def log_mandate_revocation(
+    logger: structlog.stdlib.BoundLogger,
+    mandate_id: str,
+    revoker_id: str,
+    reason: str,
+    cascade: bool = False,
+    child_mandates_revoked: Optional[int] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a mandate revocation.
+    
+    Args:
+        logger: Logger instance
+        mandate_id: Mandate ID
+        revoker_id: Revoker principal ID
+        reason: Revocation reason
+        cascade: Whether cascade revocation was used
+        child_mandates_revoked: Number of child mandates revoked (if cascade)
+        **kwargs: Additional context to log
+        
+    Requirements: 15.6, 15.7
+    """
+    correlation_id = get_correlation_id()
+    
+    log_data: Dict[str, Any] = {
+        "event_type": "mandate_revocation",
+        "mandate_id": mandate_id,
+        "revoker_id": revoker_id,
+        "reason": reason,
+        "cascade": cascade,
+        "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
+    }
+    
+    if child_mandates_revoked is not None:
+        log_data["child_mandates_revoked"] = child_mandates_revoked
+    if correlation_id is not None:
+        log_data["correlation_id"] = correlation_id
+    
+    log_data.update(kwargs)
+    
+    logger.info("mandate_revoked", **log_data)
+
+
+def log_authority_policy_change(
+    logger: structlog.stdlib.BoundLogger,
+    policy_id: str,
+    principal_id: str,
+    change_type: str,
+    changed_by: str,
+    change_reason: str,
+    before_values: Optional[Dict[str, Any]] = None,
+    after_values: Optional[Dict[str, Any]] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log an authority policy change.
+    
+    Args:
+        logger: Logger instance
+        policy_id: Policy ID
+        principal_id: Principal ID
+        change_type: Type of change (created, modified, deactivated)
+        changed_by: Identity of who made the change
+        change_reason: Reason for the change
+        before_values: Policy values before change
+        after_values: Policy values after change
+        **kwargs: Additional context to log
+        
+    Requirements: 15.6, 15.7
+    """
+    correlation_id = get_correlation_id()
+    
+    log_data: Dict[str, Any] = {
+        "event_type": "authority_policy_change",
+        "policy_id": policy_id,
+        "principal_id": principal_id,
+        "change_type": change_type,
+        "changed_by": changed_by,
+        "change_reason": change_reason,
+        "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
+    }
+    
+    if before_values is not None:
+        log_data["before_values"] = before_values
+    if after_values is not None:
+        log_data["after_values"] = after_values
+    if correlation_id is not None:
+        log_data["correlation_id"] = correlation_id
+    
+    log_data.update(kwargs)
+    
+    logger.info("authority_policy_changed", **log_data)
+
+
+def log_delegation_chain_validation(
+    logger: structlog.stdlib.BoundLogger,
+    mandate_id: str,
+    principal_id: str,
+    chain_depth: int,
+    chain_valid: bool,
+    invalid_ancestor_id: Optional[str] = None,
+    failure_reason: Optional[str] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log a delegation chain validation.
+    
+    Args:
+        logger: Logger instance
+        mandate_id: Mandate ID
+        principal_id: Principal ID
+        chain_depth: Delegation chain depth
+        chain_valid: Whether the chain is valid
+        invalid_ancestor_id: ID of invalid ancestor if chain is invalid
+        failure_reason: Reason for chain validation failure
+        **kwargs: Additional context to log
+        
+    Requirements: 15.6, 15.7
+    """
+    correlation_id = get_correlation_id()
+    
+    log_data: Dict[str, Any] = {
+        "event_type": "delegation_chain_validation",
+        "mandate_id": mandate_id,
+        "principal_id": principal_id,
+        "chain_depth": chain_depth,
+        "chain_valid": chain_valid,
+        "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
+    }
+    
+    if invalid_ancestor_id is not None:
+        log_data["invalid_ancestor_id"] = invalid_ancestor_id
+    if failure_reason is not None:
+        log_data["failure_reason"] = failure_reason
+    if correlation_id is not None:
+        log_data["correlation_id"] = correlation_id
+    
+    log_data.update(kwargs)
+    
+    if chain_valid:
+        logger.info("delegation_chain_valid", **log_data)
+    else:
+        logger.warning("delegation_chain_invalid", **log_data)
+
+
+def log_intent_validation(
+    logger: structlog.stdlib.BoundLogger,
+    intent_id: str,
+    principal_id: str,
+    action: str,
+    resource: str,
+    valid: bool,
+    reason: Optional[str] = None,
+    **kwargs: Any,
+) -> None:
+    """
+    Log an intent validation.
+    
+    Args:
+        logger: Logger instance
+        intent_id: Intent ID
+        principal_id: Principal ID
+        action: Requested action
+        resource: Requested resource
+        valid: Whether the intent is valid
+        reason: Reason for validation result
+        **kwargs: Additional context to log
+        
+    Requirements: 15.6, 15.7
+    """
+    correlation_id = get_correlation_id()
+    
+    log_data: Dict[str, Any] = {
+        "event_type": "intent_validation",
+        "intent_id": intent_id,
+        "principal_id": principal_id,
+        "action": action,
+        "resource": resource,
+        "valid": valid,
+        "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
+    }
+    
+    if reason is not None:
+        log_data["reason"] = reason
+    if correlation_id is not None:
+        log_data["correlation_id"] = correlation_id
+    
+    log_data.update(kwargs)
+    
+    if valid:
+        logger.info("intent_valid", **log_data)
+    else:
+        logger.warning("intent_invalid", **log_data)
