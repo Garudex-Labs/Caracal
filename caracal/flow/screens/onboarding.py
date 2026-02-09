@@ -190,9 +190,7 @@ storage:
   backup_count: 3
 
 defaults:
-  currency: USD
   time_window: daily
-  default_budget: 100.00
 
 logging:
   level: INFO
