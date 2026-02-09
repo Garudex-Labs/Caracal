@@ -1,5 +1,5 @@
 """
-Gateway proxy module for Caracal Core v0.2.
+Gateway proxy module for Caracal Core v0.5.
 
 This module provides network-enforced policy enforcement through:
 - Authentication (mTLS, JWT, API keys)
@@ -14,6 +14,7 @@ Authority Enforcement (v0.5+):
 - Gateway proxy for request interception
 - Decorator and middleware patterns
 - External API adapters
+- Health check endpoints
 """
 
 from caracal.gateway.auth import Authenticator, AuthenticationMethod
@@ -39,6 +40,13 @@ from caracal.gateway.authority_proxy import (
     Request,
     Response,
 )
+from caracal.gateway.health_endpoints import (
+    HealthEndpoints,
+    create_flask_health_endpoint,
+    create_fastapi_health_endpoint,
+    HealthCheckWSGIApp,
+    run_health_check_server,
+)
 
 __all__ = [
     "Authenticator",
@@ -61,4 +69,10 @@ __all__ = [
     "AnthropicAdapter",
     "Request",
     "Response",
+    # Health endpoints
+    "HealthEndpoints",
+    "create_flask_health_endpoint",
+    "create_fastapi_health_endpoint",
+    "HealthCheckWSGIApp",
+    "run_health_check_server",
 ]
