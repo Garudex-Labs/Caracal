@@ -7,6 +7,13 @@ This module provides network-enforced policy enforcement through:
 - Policy evaluation before API calls
 - Replay protection
 - Policy caching for degraded mode operation
+
+Authority Enforcement (v0.5+):
+- Pre-execution authority validation
+- Mandate-based access control
+- Gateway proxy for request interception
+- Decorator and middleware patterns
+- External API adapters
 """
 
 from caracal.gateway.auth import Authenticator, AuthenticationMethod
@@ -22,6 +29,16 @@ from caracal.gateway.cache import (
     CacheStats,
 )
 from caracal.gateway.proxy import GatewayProxy, GatewayConfig
+from caracal.gateway.authority_proxy import (
+    AuthorityGatewayProxy,
+    require_authority,
+    AuthorityMiddleware,
+    AuthorityAdapter,
+    OpenAIAdapter,
+    AnthropicAdapter,
+    Request,
+    Response,
+)
 
 __all__ = [
     "Authenticator",
@@ -35,4 +52,13 @@ __all__ = [
     "CacheStats",
     "GatewayProxy",
     "GatewayConfig",
+    # Authority enforcement
+    "AuthorityGatewayProxy",
+    "require_authority",
+    "AuthorityMiddleware",
+    "AuthorityAdapter",
+    "OpenAIAdapter",
+    "AnthropicAdapter",
+    "Request",
+    "Response",
 ]
