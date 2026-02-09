@@ -83,7 +83,7 @@ from pathlib import Path
 from caracal._version import __version__
 from caracal.mcp.service import MCPAdapterService, MCPServiceConfig, MCPServerConfig
 from caracal.mcp.adapter import MCPAdapter
-from caracal.mcp.cost_calculator import MCPCostCalculator
+
 from caracal.core.identity import AgentRegistry
 from caracal.core.policy import PolicyStore, PolicyEvaluator
 from caracal.core.ledger import LedgerWriter, LedgerQuery
@@ -157,14 +157,10 @@ async def main():
     
     print("✓ Core components initialized")
     
-    # Initialize MCP cost calculator
-    cost_calculator = MCPCostCalculator(pricebook=pricebook)
-    
     # Initialize MCP adapter
     mcp_adapter = MCPAdapter(
         policy_evaluator=policy_evaluator,
-        metering_collector=metering_collector,
-        cost_calculator=cost_calculator
+        metering_collector=metering_collector
     )
     
     print("✓ MCP adapter initialized")
