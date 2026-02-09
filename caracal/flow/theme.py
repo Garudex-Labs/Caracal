@@ -36,13 +36,18 @@ class Colors:
     BG_HIGHLIGHT = "#3d3d5c" # Highlighted background
     
     # Status colors
-    BUDGET_OK = SUCCESS
-    BUDGET_WARNING = WARNING
-    BUDGET_EXCEEDED = ERROR
+    MANDATE_ACTIVE = SUCCESS
+    MANDATE_REVOKED = ERROR
+    MANDATE_EXPIRED = WARNING
     
-    # Agent status
-    AGENT_ACTIVE = SUCCESS
-    AGENT_INACTIVE = DIM
+    # Authority status
+    AUTHORITY_GRANTED = SUCCESS
+    AUTHORITY_DENIED = ERROR
+    AUTHORITY_PENDING = WARNING
+    
+    # Principal status
+    PRINCIPAL_ACTIVE = SUCCESS
+    PRINCIPAL_INACTIVE = DIM
 
 
 class Styles:
@@ -133,17 +138,17 @@ BANNER = r"""
 ║     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝       ║
 ║                                                                   ║
 ║                   C A R A C A L  F L O W                          ║
-║              Economic Control Plane for AI Agents                 ║
+║         Pre-Execution Authority Enforcement System                ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 """
 
 # Compact banner for smaller terminals
 BANNER_COMPACT = r"""
-┌───────────────────────────────────────┐
-│  CARACAL FLOW                         │
-│  Economic Control Plane for AI Agents │
-└───────────────────────────────────────┘
+┌───────────────────────────────────────────┐
+│  CARACAL FLOW                             │
+│  Pre-Execution Authority Enforcement      │
+└───────────────────────────────────────────┘
 """
 
 
