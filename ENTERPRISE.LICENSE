@@ -1,7 +1,6 @@
                 CARACAL DUAL LICENSE NOTICE
             Community Edition (AGPLv3) and Enterprise Edition
 
-
 Copyright (C) 2026 Garudex Labs. All rights reserved.
 
 This repository is distributed under a dual licensing model:
@@ -16,12 +15,10 @@ This repository is distributed under a dual licensing model:
 2. Enterprise Edition
    All files, directories, modules, or components explicitly designated as:
 
-   ```
    /enterprise
    /enterprise/*
    or otherwise marked as "Enterprise", "Enterprise Edition",
    or "Proprietary"
-   ```
 
    are proprietary software and are NOT licensed under AGPLv3.
 
@@ -42,10 +39,8 @@ Commercial licenses are granted only through a written agreement.
 
 For commercial licensing inquiries:
 
-```
 Email: support@garudexlabs.com
 Website: www.garudexlabs.com
-```
 
 Except as expressly provided above, all rights are reserved by
 Garudex Labs.
