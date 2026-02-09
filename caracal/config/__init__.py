@@ -12,7 +12,7 @@ from caracal.config.settings import (
     GatewayConfig,
     LoggingConfig,
     MCPAdapterConfig,
-    MCPCostRule,
+
     PerformanceConfig,
     PolicyCacheConfig,
     StorageConfig,
@@ -30,7 +30,7 @@ __all__ = [
     "GatewayConfig",
     "LoggingConfig",
     "MCPAdapterConfig",
-    "MCPCostRule",
+
     "PerformanceConfig",
     "PolicyCacheConfig",
     "StorageConfig",
