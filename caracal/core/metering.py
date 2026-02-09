@@ -65,16 +65,11 @@ class MeteringCollector:
             # Validate event
             self._validate_event(event)
             
-            # Calculate cost
-            cost = self._calculate_cost(event.resource_type, event.quantity)
-            
             # Write to ledger
             ledger_event = self.ledger_writer.append_event(
                 agent_id=event.agent_id,
                 resource_type=event.resource_type,
                 quantity=event.quantity,
-                cost=cost,
-                currency="USD",
                 metadata=event.metadata,
                 timestamp=event.timestamp,
                 # provisional_charge_id removed (v0.2 legacy)
@@ -83,7 +78,7 @@ class MeteringCollector:
             logger.info(
                 f"Collected metering event: agent_id={event.agent_id}, "
                 f"resource={event.resource_type}, quantity={event.quantity}, "
-                f"cost={cost} USD, event_id={ledger_event.event_id}"
+                f"event_id={ledger_event.event_id}"
             )
             
         except InvalidMeteringEventError:
@@ -160,16 +155,4 @@ class MeteringCollector:
             f"resource={event.resource_type}"
         )
 
-    def _calculate_cost(self, resource_type: str, quantity: Decimal) -> Decimal:
-        """
-        Calculate cost for a metering event.
-        
-        Args:
-            resource_type: The resource identifier
-            quantity: Amount of resource consumed
-            
-        Returns:
-            Calculated cost as Decimal
-        """
-        # TODO: Implement new pricing mechanism not based on legacy Pricebook
-        return Decimal("0")
+
