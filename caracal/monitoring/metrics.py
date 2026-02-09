@@ -36,11 +36,7 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-class PolicyDecisionType(str, Enum):
-    """Policy decision types for metrics."""
-    ALLOWED = "allowed"
-    DENIED = "denied"
-    ERROR = "error"
+
 
 
 class DatabaseOperationType(str, Enum):
@@ -123,46 +119,7 @@ class MetricsRegistry:
             registry=self.registry
         )
         
-        # Policy Evaluation Metrics
-        self.policy_evaluations_total = Counter(
-            'caracal_policy_evaluations_total',
-            'Total number of policy evaluations',
-            ['decision', 'agent_id'],
-            registry=self.registry
-        )
-        
-        self.policy_evaluation_duration_seconds = Histogram(
-            'caracal_policy_evaluation_duration_seconds',
-            'Policy evaluation duration in seconds',
-            ['decision'],
-            buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
-            registry=self.registry
-        )
-        
-        self.policy_cache_hits_total = Counter(
-            'caracal_policy_cache_hits_total',
-            'Total number of policy cache hits',
-            registry=self.registry
-        )
-        
-        self.policy_cache_misses_total = Counter(
-            'caracal_policy_cache_misses_total',
-            'Total number of policy cache misses',
-            registry=self.registry
-        )
-        
-        self.policy_cache_size = Gauge(
-            'caracal_policy_cache_size',
-            'Current number of policies in cache',
-            registry=self.registry
-        )
-        
-        self.policy_cache_evictions_total = Counter(
-            'caracal_policy_cache_evictions_total',
-            'Total number of policy cache evictions',
-            registry=self.registry
-        )
-        
+
         # Database Query Metrics
         self.database_queries_total = Counter(
             'caracal_database_queries_total',
@@ -203,48 +160,7 @@ class MetricsRegistry:
             ['error_type'],
             registry=self.registry
         )
-        
-        # Provisional Charge Metrics
-        self.provisional_charges_created_total = Counter(
-            'caracal_provisional_charges_created_total',
-            'Total number of provisional charges created',
-            ['agent_id'],
-            registry=self.registry
-        )
-        
-        self.provisional_charges_released_total = Counter(
-            'caracal_provisional_charges_released_total',
-            'Total number of provisional charges released',
-            ['agent_id', 'reason'],
-            registry=self.registry
-        )
-        
-        self.provisional_charges_expired_total = Counter(
-            'caracal_provisional_charges_expired_total',
-            'Total number of provisional charges that expired',
-            registry=self.registry
-        )
-        
-        self.provisional_charges_active = Gauge(
-            'caracal_provisional_charges_active',
-            'Number of currently active provisional charges',
-            ['agent_id'],
-            registry=self.registry
-        )
-        
-        self.provisional_charges_cleanup_duration_seconds = Histogram(
-            'caracal_provisional_charges_cleanup_duration_seconds',
-            'Duration of provisional charge cleanup job in seconds',
-            buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
-            registry=self.registry
-        )
-        
-        self.provisional_charges_cleanup_errors_total = Counter(
-            'caracal_provisional_charges_cleanup_errors_total',
-            'Total number of provisional charge cleanup errors',
-            registry=self.registry
-        )
-        
+
         # Circuit Breaker Metrics
         self.circuit_breaker_state = Gauge(
             'caracal_circuit_breaker_state',
@@ -631,67 +547,7 @@ class MetricsRegistry:
         """Record a request processed in degraded mode."""
         self.gateway_degraded_mode_requests_total.inc()
     
-    # Policy Evaluation Metrics Methods
-    
-    def record_policy_evaluation(
-        self,
-        decision: PolicyDecisionType,
-        agent_id: str,
-        duration_seconds: float
-    ):
-        """
-        Record a policy evaluation.
-        
-        Args:
-            decision: Policy decision (allowed, denied, error)
-            agent_id: Agent ID
-            duration_seconds: Evaluation duration in seconds
-        """
-        self.policy_evaluations_total.labels(
-            decision=decision.value,
-            agent_id=agent_id
-        ).inc()
-        
-        self.policy_evaluation_duration_seconds.labels(
-            decision=decision.value
-        ).observe(duration_seconds)
-    
-    @contextmanager
-    def time_policy_evaluation(self, decision: PolicyDecisionType, agent_id: str):
-        """
-        Context manager to time policy evaluations.
-        
-        Args:
-            decision: Policy decision type
-            agent_id: Agent ID
-        """
-        start_time = time.time()
-        try:
-            yield
-        finally:
-            duration = time.time() - start_time
-            self.record_policy_evaluation(decision, agent_id, duration)
-    
-    def record_policy_cache_hit(self):
-        """Record a policy cache hit."""
-        self.policy_cache_hits_total.inc()
-    
-    def record_policy_cache_miss(self):
-        """Record a policy cache miss."""
-        self.policy_cache_misses_total.inc()
-    
-    def set_policy_cache_size(self, size: int):
-        """
-        Set the current policy cache size.
-        
-        Args:
-            size: Number of policies in cache
-        """
-        self.policy_cache_size.set(size)
-    
-    def record_policy_cache_eviction(self):
-        """Record a policy cache eviction."""
-        self.policy_cache_evictions_total.inc()
+
     
     # Database Query Metrics Methods
     
@@ -772,56 +628,7 @@ class MetricsRegistry:
         """
         self.database_connection_errors_total.labels(error_type=error_type).inc()
     
-    # Provisional Charge Metrics Methods
-    
-    def record_provisional_charge_created(self, agent_id: str):
-        """
-        Record a provisional charge creation.
-        
-        Args:
-            agent_id: Agent ID
-        """
-        self.provisional_charges_created_total.labels(agent_id=agent_id).inc()
-    
-    def record_provisional_charge_released(self, agent_id: str, reason: str):
-        """
-        Record a provisional charge release.
-        
-        Args:
-            agent_id: Agent ID
-            reason: Reason for release (final_charge, expired, manual)
-        """
-        self.provisional_charges_released_total.labels(
-            agent_id=agent_id,
-            reason=reason
-        ).inc()
-    
-    def record_provisional_charge_expired(self):
-        """Record a provisional charge expiration."""
-        self.provisional_charges_expired_total.inc()
-    
-    def set_provisional_charges_active(self, agent_id: str, count: int):
-        """
-        Set the number of active provisional charges for an agent.
-        
-        Args:
-            agent_id: Agent ID
-            count: Number of active charges
-        """
-        self.provisional_charges_active.labels(agent_id=agent_id).set(count)
-    
-    @contextmanager
-    def time_provisional_charge_cleanup(self):
-        """Context manager to time provisional charge cleanup jobs."""
-        start_time = time.time()
-        try:
-            yield
-        except Exception:
-            self.provisional_charges_cleanup_errors_total.inc()
-            raise
-        finally:
-            duration = time.time() - start_time
-            self.provisional_charges_cleanup_duration_seconds.observe(duration)
+
     
     # Circuit Breaker Metrics Methods
     
