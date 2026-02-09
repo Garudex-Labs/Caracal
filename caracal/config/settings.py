@@ -6,18 +6,25 @@ Supports environment variable substitution using ${ENV_VAR} syntax.
 Supports encrypted configuration values using ENC[...] syntax.
 """
 
+
+print("DEBUG: Importing os")
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+print("DEBUG: Importing yaml")
+
 import yaml
 
 from caracal.exceptions import ConfigurationError, InvalidConfigurationError
+print("DEBUG: Importing logging_config")
 from caracal.logging_config import get_logger
+print("DEBUG: Getting logger")
 
 logger = get_logger(__name__)
+print("DEBUG: Logger got")
 
 
 def _expand_env_vars(value: Any) -> Any:
@@ -769,9 +776,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     authority_enforcement = AuthorityEnforcementConfig(
         enabled=authority_enforcement_data.get('enabled', default_config.authority_enforcement.enabled),
         per_principal_rollout=authority_enforcement_data.get('per_principal_rollout', default_config.authority_enforcement.per_principal_rollout),
-        compatibility_mode_enabled=authority_enforcement_data.get('compatibility_mode_enabled', default_config.authority_enforcement.compatibility_mode_enabled),
         compatibility_logging_enabled=authority_enforcement_data.get('compatibility_logging_enabled', default_config.authority_enforcement.compatibility_logging_enabled),
-        rollback_to_budget_mode=authority_enforcement_data.get('rollback_to_budget_mode', default_config.authority_enforcement.rollback_to_budget_mode),
     )
     
     # Log warnings if running in v0.2 compatibility mode
@@ -785,9 +790,8 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
             logger.warning("Redis caching is disabled - using PostgreSQL for all queries")
     
     # Log warnings for authority enforcement configuration
-    if authority_enforcement.rollback_to_budget_mode:
-        logger.warning("Authority enforcement rollback enabled - using budget enforcement mode")
-    elif authority_enforcement.enabled:
+    # Log warnings for authority enforcement configuration
+    if authority_enforcement.enabled:
         logger.info("Authority enforcement enabled")
         if authority_enforcement.per_principal_rollout:
             logger.info("Per-principal authority enforcement rollout enabled")
@@ -981,27 +985,7 @@ def _validate_config(config: CaracalConfig) -> None:
             f"got '{config.ase.key_algorithm}'"
         )
     
-    # Validate provisional charge configuration
-    if config.ase.provisional_charges.default_expiration_seconds <= 0:
-        raise InvalidConfigurationError(
-            f"ase provisional_charges default_expiration_seconds must be positive, "
-            f"got {config.ase.provisional_charges.default_expiration_seconds}"
-        )
-    if config.ase.provisional_charges.timeout_minutes <= 0:
-        raise InvalidConfigurationError(
-            f"ase provisional_charges timeout_minutes must be positive, "
-            f"got {config.ase.provisional_charges.timeout_minutes}"
-        )
-    if config.ase.provisional_charges.cleanup_interval_seconds <= 0:
-        raise InvalidConfigurationError(
-            f"ase provisional_charges cleanup_interval_seconds must be positive, "
-            f"got {config.ase.provisional_charges.cleanup_interval_seconds}"
-        )
-    if config.ase.provisional_charges.cleanup_batch_size < 1:
-        raise InvalidConfigurationError(
-            f"ase provisional_charges cleanup_batch_size must be at least 1, "
-            f"got {config.ase.provisional_charges.cleanup_batch_size}"
-        )
+
     
     # Validate Merkle configuration (v0.3)
     if config.compatibility.enable_merkle:
