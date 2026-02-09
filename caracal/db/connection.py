@@ -113,7 +113,7 @@ class DatabaseConnectionManager:
         """
         Initialize database engine and session factory.
         
-        Creates SQLAlchemy engine.
+        Creates SQLAlchemy engine and automatically creates tables if they don't exist.
         Must be called before using get_session().
         """
         if self._initialized:
@@ -189,6 +189,14 @@ class DatabaseConnectionManager:
             autoflush=False,
             bind=self._engine,
         )
+        
+        # Automatically create tables if they don't exist
+        try:
+            from caracal.db.models import Base
+            Base.metadata.create_all(self._engine)
+            logger.info("Database tables verified/created")
+        except Exception as e:
+            logger.warning(f"Could not create tables automatically: {e}")
         
         self._initialized = True
         logger.info("Database connection manager initialized successfully")
