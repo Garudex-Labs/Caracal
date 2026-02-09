@@ -1,7 +1,14 @@
 """
-Caracal Flow Pricebook Screen.
+DEPRECATED: Caracal Flow Pricebook Screen.
 
-Pricebook management flows:
+⚠️  DEPRECATION NOTICE ⚠️
+This module is deprecated and will be removed in a future version.
+Caracal has transitioned from an economic control plane to an authority enforcement system.
+Pricebook functionality is no longer applicable to the authority enforcement model.
+
+For mandate management, use the Mandate Manager screen instead.
+
+Pricebook management flows (deprecated):
 - List prices
 - Set/Update price
 - Import prices
@@ -25,9 +32,30 @@ logger = get_logger(__name__)
 
 
 def run_pricebook_flow(console: Optional[Console] = None) -> None:
-    """Run the pricebook management flow."""
+    """
+    Run the pricebook management flow.
+    
+    DEPRECATED: This functionality is no longer applicable to authority enforcement.
+    Use the Mandate Manager screen for mandate management instead.
+    """
     console = console or Console()
     
+    # Show deprecation warning
+    console.print()
+    console.print(Panel(
+        f"[{Colors.WARNING}]⚠️  DEPRECATION NOTICE ⚠️\n\n"
+        f"The Pricebook feature is deprecated and no longer applicable.\n\n"
+        f"Caracal has transitioned to an authority enforcement system.\n"
+        f"Please use the Mandate Manager for execution mandate management.[/]",
+        title=f"[bold {Colors.WARNING}]Deprecated Feature[/]",
+        border_style=Colors.WARNING,
+    ))
+    console.print()
+    console.print(f"  [{Colors.HINT}]Press Enter to return to main menu...[/]")
+    input()
+    return
+    
+    # Original code kept for backward compatibility but not reachable
     while True:
         console.clear()
         
