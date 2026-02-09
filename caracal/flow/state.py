@@ -78,6 +78,39 @@ class SessionData:
 
 
 @dataclass
+class AuthoritySessionData:
+    """Authority management session data (not persisted)."""
+    
+    selected_principal_id: Optional[str] = None
+    selected_mandate_id: Optional[str] = None
+    selected_policy_id: Optional[str] = None
+    current_delegation_chain: list[str] = field(default_factory=list)
+    
+    def set_principal(self, principal_id: str) -> None:
+        """Set the currently selected principal."""
+        self.selected_principal_id = principal_id
+    
+    def set_mandate(self, mandate_id: str) -> None:
+        """Set the currently selected mandate."""
+        self.selected_mandate_id = mandate_id
+    
+    def set_policy(self, policy_id: str) -> None:
+        """Set the currently selected policy."""
+        self.selected_policy_id = policy_id
+    
+    def set_delegation_chain(self, chain: list[str]) -> None:
+        """Set the current delegation chain."""
+        self.current_delegation_chain = chain
+    
+    def clear(self) -> None:
+        """Clear all authority session data."""
+        self.selected_principal_id = None
+        self.selected_mandate_id = None
+        self.selected_policy_id = None
+        self.current_delegation_chain = []
+
+
+@dataclass
 class RecentAction:
     """Record of a recent action."""
     
