@@ -605,20 +605,29 @@ def run_onboarding(
             
             try:
                 with db_manager.session_scope() as db_session:
-                    principal = Principal(
-                        name=principal_data["name"],
-                        principal_type=principal_data["type"],
-                        owner=principal_data["owner"],
-                        created_at=datetime.utcnow(),
-                    )
+                    # Check if principal already exists
+                    existing = db_session.query(Principal).filter_by(
+                        name=principal_data["name"]
+                    ).first()
                     
-                    db_session.add(principal)
-                    db_session.flush()
-                    
-                    principal_id = principal.principal_id
-                    
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal registered successfully.[/]")
-                console.print(f"  [{Colors.DIM}]Principal ID: {principal_id}[/]")
+                    if existing:
+                        principal_id = existing.principal_id
+                        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal already exists, reusing.[/]")
+                        console.print(f"  [{Colors.DIM}]Principal ID: {principal_id}[/]")
+                    else:
+                        principal = Principal(
+                            name=principal_data["name"],
+                            principal_type=principal_data["type"],
+                            owner=principal_data["owner"],
+                            created_at=datetime.utcnow(),
+                        )
+                        
+                        db_session.add(principal)
+                        db_session.flush()
+                        
+                        principal_id = principal.principal_id
+                        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal registered successfully.[/]")
+                        console.print(f"  [{Colors.DIM}]Principal ID: {principal_id}[/]")
             except Exception as e:
                 console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to register principal: {e}[/]")
         
