@@ -28,19 +28,21 @@
 
 ## Overview
 
-**Caracal** is a pre-execution authority enforcement system for AI agents and automated software operating in production environments. It exists at the exact boundary where decisions turn into irreversible actions such as API calls, database writes, deployments, workflow triggers, financial operations, or any action that can create real impact. Instead of relying on standing credentials, broad roles, or static permissions, Caracal enforces a single rule: no action executes unless there is explicit, valid authority for that action at that moment.
+**Caracal** is a pre-execution authority enforcement system for AI agents and automated software operating in production environments. It exists at the exact boundary where decisions turn into irreversible actions—API calls, database writes, deployments, or workflow triggers. 
+
+Instead of relying on broad roles or static API keys, Caracal enforces the **principle of explicit authority**: no action executes unless there is a cryptographically verified, time-bound mandate issued under a governing policy.
 
 ---
 
 ## Quickstart
 
-Caracal offers two distinct interfaces depending on your role and requirements.
+Caracal offers two distinct interfaces for managing authority.
 
-### 1. Caracal Flow (Default)
+### 1. Caracal Flow (TUI)
 
-**Target:** Operators, FinOps, and Monitoring Teams.
+**Target:** Security Teams, Governance Officers, and Developers.
 
-Caracal Flow is the interactive Terminal User Interface (TUI). It provides a visual dashboard for monitoring agent swarms, managing infrastructure, and auditing real-time spend without writing code.
+Caracal Flow is an interactive terminal interface for onboarding, monitoring authority ledgers, and managing infrastructure. It includes an **Onboarding Wizard** to help you configure your first principal, policy, and mandate in minutes.
 
 ```text
 ╔═══════════════════════════════════════════════════════════════════╗
@@ -53,105 +55,95 @@ Caracal Flow is the interactive Terminal User Interface (TUI). It provides a vis
 ║     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝       ║
 ║                                                                   ║
 ║                   C A R A C A L  F L O W                          ║
-║              Economic Control Plane for AI Agents                 ║
+║         Pre-Execution Authority Enforcement System                ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
-
 ```
 
-**Launch Dashboard:**
+**Launch Caracal Flow:**
 
 ```bash
-uv run caracal-flow
-
+caracal-flow
 ```
 
 **Capabilities in Flow:**
 
-* **Visual Metering:** Real-time graphs of token usage and dollar spend.
-* **One-Click Infrastructure:** Toggle between local SQLite and production Docker stacks.
-* **Policy Management:** GUI-based adjustments for agent budget caps.
+* **Onboarding Wizard:** Guided setup for principals and policies.
+* **Authority Ledger:** Real-time stream of authorization decisions.
+* **Principal Hub:** Manage identities and cryptographic key pairs.
+* **Infrastructure Setup:** Provision PostgreSQL and Kafka with one click.
 
 ---
 
-### 2. Caracal Core (Power Users)
+### 2. Caracal Core (CLI & SDK)
 
-**Target:** Developers, CI/CD Engineers, and System Architects.
+**Target:** Developers and System Architects.
 
-Caracal Core provides the high-performance CLI and SDK for deep integration. It is designed for users who require programmatic control, custom scripting, or wish to embed economic safety checks directly into agent loops.
+Caracal Core provides the high-performance CLI and SDK for deep integration into agentic loops and CI/CD pipelines.
 
 **Installation:**
 
 ```bash
-git clone https://github.com/Garudex-Labs/caracal.git
-cd caracal
-pip install -e .
-
+pip install caracal-core
 ```
 
-**CLI Commands:**
+**Example CLI Commands:**
 
 ```bash
-# Register a new agent identity with a hard budget cap
-caracal agents register --name "researcher-01" --budget 50.00 --zone "dev-cluster"
+# Register a principal (agent identity)
+caracal principals register --name "web-scraper-01" --type agent
 
-# Generate a dynamic access token for a specific session
-caracal auth token --agent "researcher-01" --ttl 3600
+# Create an authority policy allowing search on specific resources
+caracal policies create --principal-id <ID> --resources "google.com/*" --actions "GET,POST"
 
-# Audit the ledger for specific transactions
-caracal ledger audit --agent "researcher-01" --format json
+# Issue a time-bound execution mandate
+caracal mandates issue --principal-id <ID> --ttl 1800
 
+# Query the authority ledger
+caracal authority-ledger query --principal-id <ID>
 ```
-
-**Advanced Configuration:**
-Power users can override default behaviors by modifying `caracal.yaml` or setting environment variables for custom identity providers (IdP) and key management systems (KMS).
 
 ---
 
-## Core Capabilities
+## Core Concepts
 
-**Dynamic Identity & Access**
-Move beyond static API keys. Caracal issues ephemeral, identity-attested credentials that can be revoked instantly. Authorization happens at the edge where agents interact with their environment.
+**Principals**
+Identities (agents, users, or services) that can hold and exercise authority. Principals use ECDSA P-256 keys for cryptographic attestation.
 
-**Budget Enforcement**
-Define hard caps on token usage, dollar spend, and transaction frequency per agent identity. Policies are deterministic and enforced at the gateway level before any cost is incurred.
+**Authority Policies**
+Governing rules that define the maximum validity, allowed resource patterns, and permitted actions for a given principal.
 
-**Secure Ledger**
-An immutable audit trail for every economic decision made by an agent. This system of record allows companies to attribute costs to specific agents, explain outcomes, and ensure compliance.
+**Execution Mandates**
+Short-lived, cryptographically signed tokens that grant specific rights. Mandates are checked by the Caracal Gateway before any action is executed.
 
-**Agent-Native Data Model**
-Map workloads into logical, ephemeral zones. Spin zones up or down as needed, perfect for dynamic, agent-native workloads that integrate directly into your software development lifecycle.
+**Authority Ledger**
+A high-performance, immutable audit trail of every authorization request, decision, and enforcement event.
 
 ---
 
 ## Infrastructure
 
-Caracal is designed to scale with your agent fleet.
+Caracal scales from local development to enterprise-grade throughput.
 
-| Environment | Database | Messaging | Cache | Use Case |
+| Environment | Database | Messaging | Event Bus | Use Case |
 | --- | --- | --- | --- | --- |
-| **Local** | SQLite | In-Memory | Local Dict | Zero-setup dev, testing, and Caracal Flow default. |
-| **Production** | PostgreSQL | Kafka | Redis | High-throughput enterprise deployment. |
-
-**To enable production mode:**
-
-1. Open `caracal-flow`.
-2. Navigate to **Settings & Config** > **Infrastructure Setup**.
-3. Select **Start All Services** (provisions containers via Docker).
+| **Standard** | SQLite | File-based | In-Memory | Local development, testing, and TUI default. |
+| **Enterprise** | PostgreSQL | Kafka | Redis/Redpanda | High-availability production enforcement. |
 
 ---
 
 ## Project Structure
 
-* `caracal/core/`: Business logic for budgeting, identity, and ledger operations.
-* `caracal/flow/`: TUI layer for the visual dashboard.
-* `caracal/gateway/`: Policy enforcement proxy and middleware.
-* `deploy/`: Infrastructure definitions (Docker Compose, Helm).
+* `caracal/core/`: Core engine for policy evaluation and mandate issuance.
+* `caracal/flow/`: TUI layer for interactive management.
+* `caracal/db/`: Persistence layer supporting multiple backends.
+* `k8s/`: Kubernetes manifests for production deployment.
+* `deploy/`: Infrastructure automation scripts.
 
 ---
 
 ## License
 
-Caracal is open-source software licensed under the **AGPL-3.0**. See the [LICENSE](https://github.com/Garudex-Labs/caracal/blob/main/LICENSE) file for full details.
+Caracal is open-source software licensed under the **AGPL-3.0**. See the [LICENSE](LICENSE) file for details.
 
 **Developed by Garudex Labs.**
