@@ -45,9 +45,9 @@ from caracal.cli.context import CLIContext, pass_context
 @pass_context
 def cli(ctx: CLIContext, config: Optional[Path], log_level: str, verbose: bool):
     """
-    Caracal Core - Economic control plane for AI agents.
+    Caracal Core - Pre-execution authority enforcement system for AI agents.
     
-    Provides budget enforcement, metering, and ledger management for AI agents.
+    Provides mandate management, policy enforcement, and authority ledger for AI agents.
     """
     ctx.verbose = verbose
     ctx.config_path = str(config) if config else None

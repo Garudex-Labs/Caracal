@@ -1,8 +1,8 @@
 """
-Caracal Core - Economic Control Plane for AI Agents
+Caracal Core - Pre-Execution Authority Enforcement System for AI Agents
 
-Caracal Core provides economic identity, budgeting, enforcement, ledger,
-and metering capabilities for AI agents.
+Caracal Core provides execution authority, mandate management, delegation,
+policy enforcement, and audit capabilities for AI agents.
 """
 
 from caracal._version import __version__

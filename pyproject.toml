@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "caracal-core"
 dynamic = ["version"]
-description = "Economic control plane for AI agents"
+description = "Pre-execution authority enforcement system for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [
     {name = "Caracal Contributors"}
 ]
-keywords = ["ai", "agents", "economics", "budgeting", "metering", "ledger", "ase", "spending", "policy", "enforcement"]
+keywords = ["ai", "agents", "authority", "enforcement", "mandate", "ledger", "ase", "delegation", "policy", "security"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Office/Business :: Financial",
+    "Topic :: Security",
     "Topic :: System :: Monitoring",
 ]
 

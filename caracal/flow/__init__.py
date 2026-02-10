@@ -1,5 +1,5 @@
 """
-Caracal Flow - Interactive CLI for the Caracal economic control plane.
+Caracal Flow - Interactive CLI for the Caracal authority enforcement system.
 
 Provides a guided, step-driven terminal experience with:
 - Interactive menus with arrow-key navigation

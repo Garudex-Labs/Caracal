@@ -345,9 +345,9 @@ class FlowApp:
             f"""[{Colors.NEUTRAL}]Caracal Flow - Interactive CLI for Caracal[/]
 [{Colors.INFO}]Version:[/] {__version__}
 [{Colors.INFO}]License:[/] AGPL-3.0
-[{Colors.NEUTRAL}]Caracal is an economic control plane for AI agents,
-providing budget enforcement, metering, and ledger
-management.[/]
+[{Colors.NEUTRAL}]Caracal is a pre-execution authority enforcement system for AI agents,
+providing mandate management, policy enforcement, and authority
+ledger capabilities.[/]
 [{Colors.DIM}]Website: https://github.com/Garudex-Labs/caracal[/]
 """,
             title=f"[bold {Colors.INFO}]About Caracal[/]",

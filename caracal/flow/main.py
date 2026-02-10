@@ -34,7 +34,7 @@ def main(reset: bool, compact: bool, no_onboarding: bool) -> None:
     Caracal Flow - Interactive CLI for Caracal.
     
     A guided, step-driven terminal experience for managing the Caracal
-    economic control plane for AI agents.
+    authority enforcement system for AI agents.
     
     Features:
     - Interactive menus with arrow-key navigation
