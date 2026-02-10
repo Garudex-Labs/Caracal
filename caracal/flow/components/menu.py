@@ -129,14 +129,16 @@ class Menu:
         """Generate formatted menu text."""
         lines = []
         
-        # Title
-        lines.append((f"bold {Colors.INFO}", f"\n  {self.title}\n"))
+        # Title (skip if empty to avoid extra gap)
+        if self.title:
+            lines.append((f"bold {Colors.INFO}", f"\n  {self.title}\n"))
         
         # Subtitle
         if self.subtitle:
             lines.append((Colors.DIM, f"  {self.subtitle}\n"))
         
-        lines.append(("", "\n"))
+        if self.title or self.subtitle:
+            lines.append(("", "\n"))
         
         # Menu items
         for i, item in enumerate(self.items):
