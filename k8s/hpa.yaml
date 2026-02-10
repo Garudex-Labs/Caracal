@@ -1,4 +1,4 @@
-# Horizontal Pod Autoscaler for Caracal Core v0.2
+# Horizontal Pod Autoscaler for Caracal Core
 # Requirements: 17.2, 17.4
 #
 # This HPA automatically scales Gateway Proxy and MCP Adapter based on CPU/memory usage.

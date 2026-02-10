@@ -1,6 +1,6 @@
-# Caracal Core v0.2 - Kubernetes Deployment
+# Caracal Core - Kubernetes Deployment
 
-This directory contains Kubernetes manifests for deploying Caracal Core v0.2 in a Kubernetes cluster.
+This directory contains Kubernetes manifests for deploying Caracal Core in a Kubernetes cluster.
 
 ## Architecture
 

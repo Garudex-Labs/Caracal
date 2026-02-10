@@ -1,4 +1,4 @@
-# Kubernetes ConfigMap for Caracal Core v0.2
+# Kubernetes ConfigMap for Caracal Core
 # Requirements: 17.2, 17.4
 #
 # This ConfigMap stores non-sensitive configuration for Gateway Proxy

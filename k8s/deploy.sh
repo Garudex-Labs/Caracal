@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deployment script for Caracal Core v0.2 on Kubernetes
+# Deployment script for Caracal Core on Kubernetes
 # Requirements: 17.2, 17.4
 #
 # This script automates the deployment of Caracal Core to Kubernetes.
@@ -28,6 +28,15 @@ NAMESPACE="caracal"
 WAIT=false
 SKIP_TLS=false
 DRY_RUN=false
+
+# Read version from VERSION file
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    CARACAL_VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+else
+    CARACAL_VERSION="unknown"
+fi
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -143,7 +152,7 @@ else
 fi
 
 # Deploy to Kubernetes
-print_info "Deploying Caracal Core v0.2 to namespace: $NAMESPACE"
+print_info "Deploying Caracal Core v${CARACAL_VERSION} to namespace: $NAMESPACE"
 echo ""
 
 # Step 1: Create namespace

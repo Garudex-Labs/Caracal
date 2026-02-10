@@ -37,7 +37,7 @@ kubectl create namespace caracal
 
 ### 2. Prepare TLS Certificates
 
-Create TLS certificates for the Gateway Proxy (same as v0.2):
+Create TLS certificates for the Gateway Proxy (same as core edition):
 
 ```bash
 mkdir -p certs

@@ -1,4 +1,4 @@
-# Caracal Core v0.2 - Kubernetes Manifest Index
+# Caracal Core - Kubernetes Manifest Index
 
 This document provides an index of all Kubernetes manifests and their purposes.
 
