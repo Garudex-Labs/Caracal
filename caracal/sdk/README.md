@@ -1,17 +1,20 @@
-# Caracal SDK
+# Caracal Authority Enforcement SDK
 
-The Caracal SDK provides a developer-friendly Python API for integrating budget checks and metering into AI agent applications.
+The Caracal Authority Enforcement SDK provides a developer-friendly Python API for interacting with the Caracal Authority Enforcement system. It supports both synchronous and asynchronous operations.
 
 ## Features
 
-- **Configuration Management**: Automatic loading of Caracal configuration
-- **Component Integration**: Seamless integration with all Caracal Core components
-- **Event Emission**: Direct metering event emission with cost calculation
-- **Budget Checking**: Simple budget verification methods
-- **Fail-Closed Semantics**: Automatic denial on errors to prevent unchecked spending
-- **Clear Error Messages**: Comprehensive error handling with informative messages
+- **Mandate Management**: Request, validate, and revoke execution mandates
+- **Delegation**: Create delegated mandates with constrained scope
+- **Ledger Queries**: Query the authority ledger for audit and compliance
+- **Fail-Closed Semantics**: Errors result in denial to prevent unauthorized access
+- **Connection Pooling**: Efficient HTTP connection management
+- **Retry Logic**: Automatic retry with exponential backoff
+- **Async Support**: Full async/await support with `AsyncAuthorityClient`
 
 ## Installation
+
+The SDK is included with Caracal Core:
 
 ```bash
 pip install caracal-core
@@ -19,213 +22,228 @@ pip install caracal-core
 
 ## Quick Start
 
+### Synchronous Client
+
 ```python
-from decimal import Decimal
-from caracal.sdk.client import CaracalClient
+from caracal.sdk import AuthorityClient
 
-# Initialize client (uses default config at ~/.caracal/config.yaml)
-client = CaracalClient()
+# Initialize client
+client = AuthorityClient(
+    base_url="http://localhost:8000",
+    api_key="your-api-key"  # Optional
+)
 
-# Or specify custom config path
-client = CaracalClient(config_path="/path/to/config.yaml")
+# Request a mandate
+mandate = client.request_mandate(
+    issuer_id="admin-principal-id",
+    subject_id="agent-principal-id",
+    resource_scope=["api:openai:gpt-4"],
+    action_scope=["api_call"],
+    validity_seconds=3600  # 1 hour
+)
 
-# Check if agent is within budget
-if client.check_budget("my-agent-id"):
-    # Proceed with expensive operation
-    result = call_expensive_api()
-    
-    # Emit metering event
-    client.emit_event(
-        agent_id="my-agent-id",
-        resource_type="openai.gpt-5.2.input_tokens",
-        quantity=Decimal("1"),
-        metadata={"model": "gpt-5.2"}
+# Validate the mandate
+decision = client.validate_mandate(
+    mandate_id=mandate['mandate_id'],
+    requested_action="api_call",
+    requested_resource="api:openai:gpt-4"
+)
+
+if decision['allowed']:
+    print("Action authorized!")
+else:
+    print(f"Action denied: {decision['denial_reason']}")
+
+# Clean up
+client.close()
+```
+
+### Context Manager
+
+```python
+from caracal.sdk import AuthorityClient
+
+# Automatically closes on exit
+with AuthorityClient(base_url="http://localhost:8000") as client:
+    mandate = client.request_mandate(
+        issuer_id="admin-principal-id",
+        subject_id="agent-principal-id",
+        resource_scope=["api:openai:*"],
+        action_scope=["api_call"],
+        validity_seconds=3600
     )
+    print(f"Mandate ID: {mandate['mandate_id']}")
+```
+
+### Async Client
+
+```python
+import asyncio
+from caracal.sdk import AsyncAuthorityClient
+
+async def main():
+    async with AsyncAuthorityClient(base_url="http://localhost:8000") as client:
+        # Request mandate asynchronously
+        mandate = await client.request_mandate(
+            issuer_id="admin-principal-id",
+            subject_id="agent-principal-id",
+            resource_scope=["api:openai:*"],
+            action_scope=["api_call"],
+            validity_seconds=3600
+        )
+        
+        # Validate asynchronously
+        decision = await client.validate_mandate(
+            mandate_id=mandate['mandate_id'],
+            requested_action="api_call",
+            requested_resource="api:openai:gpt-4"
+        )
+        
+        print(f"Allowed: {decision['allowed']}")
+
+asyncio.run(main())
 ```
 
 ## API Reference
 
-### CaracalClient
+### AuthorityClient
 
-Main SDK client class for interacting with Caracal Core.
+#### `__init__(base_url, api_key=None, timeout=30, max_retries=3, backoff_factor=0.5)`
 
-#### `__init__(config_path: Optional[str] = None)`
-
-Initialize the Caracal SDK client.
+Initialize the authority client.
 
 **Parameters:**
-- `config_path` (optional): Path to configuration file. If None, uses default path `~/.caracal/config.yaml`.
+- `base_url` (str): Base URL of the Caracal authority service
+- `api_key` (str, optional): API key for authentication
+- `timeout` (int): Request timeout in seconds (default: 30)
+- `max_retries` (int): Maximum retry attempts (default: 3)
+- `backoff_factor` (float): Exponential backoff factor (default: 0.5)
 
-**Raises:**
-- `ConnectionError`: If initialization fails (fail-closed)
-- `SDKConfigurationError`: If configuration is invalid
+#### `request_mandate(issuer_id, subject_id, resource_scope, action_scope, validity_seconds, intent=None, parent_mandate_id=None, metadata=None)`
 
-**Example:**
-```python
-# Use default configuration
-client = CaracalClient()
-
-# Use custom configuration
-client = CaracalClient(config_path="/etc/caracal/config.yaml")
-```
-
-#### `emit_event(agent_id: str, resource_type: str, quantity: Decimal, metadata: Optional[Dict] = None)`
-
-Emit a metering event directly.
+Request a new execution mandate.
 
 **Parameters:**
-- `agent_id`: Agent identifier
-- `resource_type`: Type of resource consumed (e.g., "openai.gpt-5.2.input_tokens")
-- `quantity`: Amount of resource consumed (as Decimal)
-- `metadata` (optional): Additional context for the event
+- `issuer_id` (str): Principal ID of the issuer
+- `subject_id` (str): Principal ID of the subject
+- `resource_scope` (List[str]): List of resource patterns
+- `action_scope` (List[str]): List of allowed actions
+- `validity_seconds` (int): Mandate validity period in seconds
+- `intent` (dict, optional): Intent that constrains the mandate
+- `parent_mandate_id` (str, optional): Parent mandate for delegation
+- `metadata` (dict, optional): Additional metadata
 
-**Raises:**
-- `ConnectionError`: If event emission fails (fail-closed)
+**Returns:** Dictionary containing the execution mandate
 
-**Example:**
-```python
-from decimal import Decimal
+**Raises:** `ConnectionError`, `SDKConfigurationError`
 
-client.emit_event(
-    agent_id="my-agent-id",
-    resource_type="openai.gpt-5.2.input_tokens",
-    quantity=Decimal("1"),
-    metadata={
-        "model": "gpt-5.2",
-        "request_id": "req_123",
-        "user": "user@example.com"
-    }
-)
-```
+#### `validate_mandate(mandate_id, requested_action, requested_resource, mandate_data=None)`
 
-#### `check_budget(agent_id: str) -> bool`
-
-Check if an agent is within budget.
+Validate an execution mandate for a specific action.
 
 **Parameters:**
-- `agent_id`: Agent identifier
+- `mandate_id` (str): Mandate identifier
+- `requested_action` (str): Action being requested
+- `requested_resource` (str): Resource being accessed
+- `mandate_data` (dict, optional): Full mandate data
 
-**Returns:**
-- `True` if agent is within budget, `False` otherwise
+**Returns:** Dictionary containing the authority decision
 
-**Fail-Closed Behavior:**
-- Returns `False` if budget check fails
-- Returns `False` if no policy exists for agent
-- Returns `False` on any error
+**Raises:** `ConnectionError`, `SDKConfigurationError`
 
-**Example:**
-```python
-if client.check_budget("my-agent-id"):
-    # Agent is within budget, proceed
-    result = call_expensive_api()
-else:
-    # Agent exceeded budget or check failed
-    print("Budget exceeded or check failed")
-```
+#### `revoke_mandate(mandate_id, revoker_id, reason, cascade=True)`
 
-#### `get_remaining_budget(agent_id: str) -> Optional[Decimal]`
-
-Get the remaining budget for an agent.
+Revoke an execution mandate.
 
 **Parameters:**
-- `agent_id`: Agent identifier
+- `mandate_id` (str): Mandate identifier to revoke
+- `revoker_id` (str): Principal ID of the revoker
+- `reason` (str): Reason for revocation
+- `cascade` (bool): Revoke child mandates (default: True)
 
-**Returns:**
-- Remaining budget as `Decimal`, or `None` if check fails
+**Returns:** Dictionary containing revocation confirmation
 
-**Fail-Closed Behavior:**
-- Returns `None` if budget check fails
-- Returns `Decimal('0')` if agent has no remaining budget
+**Raises:** `ConnectionError`, `SDKConfigurationError`
 
-**Example:**
-```python
-remaining = client.get_remaining_budget("my-agent-id")
+#### `query_ledger(principal_id=None, mandate_id=None, event_type=None, start_time=None, end_time=None, limit=100, offset=0)`
 
-if remaining and remaining > Decimal("10.00"):
-    # Sufficient budget remaining
-    result = call_expensive_api()
-else:
-    # Insufficient budget or check failed
-    print(f"Insufficient budget: {remaining}")
-```
+Query the authority ledger for events.
 
-## Fail-Closed Semantics
+**Parameters:**
+- `principal_id` (str, optional): Filter by principal ID
+- `mandate_id` (str, optional): Filter by mandate ID
+- `event_type` (str, optional): Filter by event type
+- `start_time` (datetime, optional): Filter events after this time
+- `end_time` (datetime, optional): Filter events before this time
+- `limit` (int): Maximum events to return (default: 100)
+- `offset` (int): Pagination offset (default: 0)
 
-The SDK implements fail-closed semantics to prevent unchecked spending:
+**Returns:** Dictionary containing events and metadata
 
-1. **Initialization Failures**: If the client cannot initialize (e.g., missing configuration, component failures), it raises `ConnectionError` immediately.
+**Raises:** `ConnectionError`, `SDKConfigurationError`
 
-2. **Event Emission Failures**: If event emission fails, the SDK raises `ConnectionError` to alert the caller that the event was not recorded.
+#### `delegate_mandate(parent_mandate_id, child_subject_id, resource_scope, action_scope, validity_seconds, metadata=None)`
 
-3. **Budget Check Failures**: If budget checks fail (e.g., policy evaluation error, ledger query error), the SDK returns `False` to deny the operation.
+Create a delegated mandate from a parent mandate.
 
-4. **Missing Policies**: If no policy exists for an agent, budget checks return `False` (deny).
+**Parameters:**
+- `parent_mandate_id` (str): Parent mandate identifier
+- `child_subject_id` (str): Principal ID for child subject
+- `resource_scope` (List[str]): Resource scope (subset of parent)
+- `action_scope` (List[str]): Action scope (subset of parent)
+- `validity_seconds` (int): Validity period (within parent validity)
+- `metadata` (dict, optional): Additional metadata
 
-This ensures that errors always result in denial rather than allowing potentially over-budget execution.
+**Returns:** Dictionary containing the delegated mandate
+
+**Raises:** `ConnectionError`, `SDKConfigurationError`
+
+#### `close()`
+
+Close the HTTP session and release resources.
+
+### AsyncAuthorityClient
+
+The `AsyncAuthorityClient` provides the same methods as `AuthorityClient`, but all methods are async and must be awaited.
 
 ## Error Handling
 
-The SDK provides clear error messages for all failure modes:
+The SDK implements fail-closed semantics:
 
 ```python
-from caracal.exceptions import ConnectionError, BudgetExceededError
+from caracal.sdk import AuthorityClient
+from caracal.exceptions import ConnectionError, SDKConfigurationError
+
+client = AuthorityClient(base_url="http://localhost:8000")
 
 try:
-    client = CaracalClient(config_path="/invalid/path.yaml")
-except ConnectionError as e:
-    print(f"Failed to initialize client: {e}")
-
-try:
-    client.emit_event(
-        agent_id="my-agent-id",
-        resource_type="openai.gpt4.input_tokens",
-        quantity=Decimal("1000")
+    mandate = client.request_mandate(
+        issuer_id="admin-id",
+        subject_id="agent-id",
+        resource_scope=["api:openai:*"],
+        action_scope=["api_call"],
+        validity_seconds=3600
     )
+except SDKConfigurationError as e:
+    print(f"Configuration error: {e}")
 except ConnectionError as e:
-    print(f"Failed to emit event: {e}")
-```
-
-## Configuration
-
-The SDK loads configuration from a YAML file. See the main Caracal documentation for configuration details.
-
-Example configuration:
-
-```yaml
-storage:
-  agent_registry: ~/.caracal/agents.json
-  policy_store: ~/.caracal/policies.json
-  ledger: ~/.caracal/ledger.jsonl
-  pricebook: ~/.caracal/pricebook.csv
-  backup_dir: ~/.caracal/backups
-  backup_count: 3
-
-defaults:
-  currency: USD
-  time_window: daily
-
-logging:
-  level: INFO
-  file: ~/.caracal/caracal.log
+    print(f"Connection error: {e}")
+    # Fail closed: deny the action
+finally:
+    client.close()
 ```
 
 ## Examples
 
-See `examples/sdk_client_demo.py` for a complete demonstration of SDK usage.
+See `examples/authority_client_demo.py` for complete examples.
 
-## Requirements Satisfied
+## Requirements
 
-This SDK implementation satisfies the following requirements:
+- Python 3.11+
+- requests (for synchronous client)
+- aiohttp (for async client)
+- Caracal authority service running
 
-- **Requirement 7.5**: Provides `emit_event()` function for direct event emission
-- **Requirement 7.6**: Implements fail-closed semantics for connection errors
+## License
 
-## Future Enhancements
-
-The following features are planned for future releases:
-
-- **Context Manager** (v0.1): Budget check context manager for wrapping agent code (Task 13)
-- **Async Support** (v0.2): Async/await support for non-blocking operations
-- **Batch Operations** (v0.2): Batch event emission for improved performance
-- **Retry Logic** (v0.2): Automatic retry with exponential backoff for transient failures
-- **Metrics Collection** (v0.3): Built-in metrics for SDK usage monitoring
+See LICENSE file in the Caracal repository.
