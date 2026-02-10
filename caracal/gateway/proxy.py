@@ -502,15 +502,13 @@ class GatewayProxy:
                 response_size_bytes = len(response.content)
                 quantity = Decimal("1") # Count as 1 call by default
                 
-                # v0.3: Publish metering event to Kafka if enabled
+                # v0.5: Publish metering event to Kafka if enabled
                 if self.config.enable_kafka and self.kafka_producer:
                     try:
                         await self.kafka_producer.publish_metering_event(
                             agent_id=str(agent.agent_id),
                             resource_type=resource_type,
                             quantity=quantity,
-                            # cost/currency removed
-                            # provisional_charge_id removed
                             metadata={
                                 "method": request.method,
                                 "path": path,
@@ -558,31 +556,21 @@ class GatewayProxy:
                             "method": request.method,
                             "path": path,
                             "target_url": target_url,
-                            "status_code": response.status_code,
-                            "response_size_bytes": response_size_bytes,
-                            "estimated_cost": str(estimated_cost) if estimated_cost else None,
-                            "actual_cost": str(actual_cost),
-                            "provisional_charge_id": str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                            "status_code": str(response.status_code),
+                            "response_size_bytes": str(response_size_bytes),
+                            "mandate_id": str(mandate_id)
                         }
                     )
                     
-                    # Collect event with provisional charge ID for reconciliation
-                    # This will release the provisional charge and adjust budget if costs differ
-                    self.metering_collector.collect_event(
-                        metering_event,
-                        provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
-                    )
+                    self.metering_collector.collect_event(metering_event)
                 
                 logger.info(
-                    f"Emitted final charge for agent {agent.agent_id}, "
-                    f"resource={resource_type}, quantity={quantity}, "
-                    f"estimated_cost={estimated_cost}, actual_cost={actual_cost}, "
-                    f"provisional_charge_id={policy_decision.provisional_charge_id}"
+                    f"Emitted metering event for agent {agent.agent_id}, "
+                    f"resource={resource_type}, quantity={quantity}"
                 )
             except Exception as e:
-                logger.error(f"Failed to emit final charge for agent {agent.agent_id}: {e}", exc_info=True)
-                # Don't fail the request if metering fails - the provisional charge
-                # will be cleaned up by the background job if not released
+                logger.error(f"Failed to emit metering event for agent {agent.agent_id}: {e}", exc_info=True)
+                # Don't fail the request if metering fails
             
             # 6. Return response
             self._allowed_count += 1
@@ -868,8 +856,6 @@ class GatewayProxy:
             headers = {k.lower(): v for k, v in request.headers.items()}
             caracal_headers = [
                 "x-caracal-target-url",
-                "x-caracal-estimated-cost",
-                "x-caracal-actual-cost",
                 "x-caracal-resource-type",
                 "x-caracal-nonce",
                 "x-caracal-timestamp",

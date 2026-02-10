@@ -1,18 +1,18 @@
 apiVersion: v2
 name: caracal
-description: A Helm chart for Caracal Core v0.3 - Budget enforcement for AI agents
+description: A Helm chart for Caracal Core v0.5 - Pre-execution authority enforcement for AI agents
 type: application
-version: 1.0.0
-appVersion: "1.0.0"
+version: 0.5.0
+appVersion: "0.5.0"
 
 keywords:
   - ai
   - agents
-  - budget
+  - authority
   - policy
-  - metering
-  - kafka
-  - event-streaming
+  - mandates
+  - security
+  - compliance
 
 home: https://caracal.dev
 sources:

@@ -1,6 +1,6 @@
-# Caracal Core v0.3 - Helm Chart
+# Caracal Core v0.5 - Helm Chart
 
-This Helm chart deploys Caracal Core v0.3 on a Kubernetes cluster.
+This Helm chart deploys Caracal Core v0.5 on a Kubernetes cluster.
 
 ## Prerequisites
 
@@ -251,9 +251,9 @@ The following table lists the configurable parameters of the Caracal chart and t
 
 ## Upgrading
 
-### From v0.2 to v0.3
+### From v0.3 to v0.5
 
-v0.3 introduces significant architectural changes. Follow the migration guide:
+v0.5 introduces authority enforcement. Follow the migration guide:
 
 1. **Backup your data**:
    ```bash

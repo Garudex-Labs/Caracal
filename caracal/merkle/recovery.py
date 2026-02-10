@@ -31,10 +31,8 @@ class RecoveryManager:
     
     Provides comprehensive recovery functionality:
     1. Load most recent snapshot
-    2. Restore state from snapshot
-    3. Replay events after snapshot timestamp
-    4. Rebuild Redis cache from replayed events
-    5. Validate integrity with Merkle roots
+    2. Replay events after snapshot timestamp
+    3. Validate integrity with Merkle roots
     
     Requirements: 12.5, 12.6
     """
@@ -43,7 +41,6 @@ class RecoveryManager:
         self,
         db_session: Session,
         snapshot_manager: SnapshotManager,
-        redis_cache=None,
         merkle_verifier=None,
     ):
         """
@@ -52,12 +49,10 @@ class RecoveryManager:
         Args:
             db_session: SQLAlchemy database session
             snapshot_manager: SnapshotManager for loading snapshots
-            redis_cache: Optional RedisSpendingCache for cache rebuilding
             merkle_verifier: Optional MerkleVerifier for integrity validation
         """
         self.db_session = db_session
         self.snapshot_manager = snapshot_manager
-        self.redis_cache = redis_cache
         self.merkle_verifier = merkle_verifier
         
         logger.info("RecoveryManager initialized")
@@ -68,10 +63,9 @@ class RecoveryManager:
         
         Steps:
         1. Find latest snapshot
-        2. Load snapshot and restore state
+        2. Load snapshot
         3. Replay events after snapshot timestamp
-        4. Rebuild Redis cache
-        5. Validate integrity
+        4. Validate integrity
         
         Returns:
             RecoveryResult: Recovery metadata
@@ -107,10 +101,9 @@ class RecoveryManager:
         Recover from a specific snapshot.
         
         Steps:
-        1. Load snapshot and restore state
+        1. Load snapshot
         2. Replay events after snapshot timestamp
-        3. Rebuild Redis cache from replayed events
-        4. Validate integrity with Merkle roots
+        3. Validate integrity with Merkle roots
         
         Args:
             snapshot_id: UUID of snapshot to recover from
@@ -124,11 +117,11 @@ class RecoveryManager:
             logger.info(f"Starting recovery from snapshot {snapshot_id}")
             start_time = datetime.utcnow()
             
-            # Step 1: Load snapshot and restore state
+            # Step 1: Load snapshot (state is minimal now)
             recovery_result = self.snapshot_manager.recover_from_snapshot(snapshot_id)
             
             logger.info(
-                f"Snapshot loaded. Restored {recovery_result.agents_restored} agents. "
+                f"Snapshot loaded. "
                 f"Replaying events from {recovery_result.replay_from_timestamp}"
             )
             
@@ -139,12 +132,7 @@ class RecoveryManager:
             
             logger.info(f"Replayed {len(replayed_events)} events")
             
-            # Step 3: Rebuild Redis cache from replayed events
-            if self.redis_cache and replayed_events:
-                self._rebuild_cache_from_events(replayed_events)
-                logger.info("Redis cache rebuilt from replayed events")
-            
-            # Step 4: Validate integrity with Merkle roots
+            # Step 3: Validate integrity with Merkle roots
             if self.merkle_verifier:
                 self._validate_integrity_after_recovery(recovery_result.replay_from_timestamp)
                 logger.info("Integrity validation completed")
@@ -196,47 +184,6 @@ class RecoveryManager:
         except Exception as e:
             logger.error(f"Failed to replay events after {timestamp}: {e}", exc_info=True)
             return []
-
-    def _rebuild_cache_from_events(self, events: List[LedgerEvent]):
-        """
-        Rebuild Redis cache from replayed events.
-        
-        Updates the cache with spending data from each event.
-        
-        Args:
-            events: List of LedgerEvent objects to process
-        """
-        if not self.redis_cache:
-            return
-        
-        try:
-            logger.info(f"Rebuilding Redis cache from {len(events)} events")
-            
-            for event in events:
-                try:
-                    # Parse timestamp
-                    event_timestamp = datetime.fromisoformat(
-                        event.timestamp.replace('Z', '+00:00')
-                    ) if isinstance(event.timestamp, str) else event.timestamp
-                    
-                    # Update cache
-                    self.redis_cache.update_spending(
-                        agent_id=str(event.agent_id),
-                        cost=event.cost,
-                        timestamp=event_timestamp,
-                        event_id=str(event.event_id)
-                    )
-                    
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to update cache for event {event.event_id}: {e}"
-                    )
-                    continue
-            
-            logger.info("Redis cache rebuild completed")
-            
-        except Exception as e:
-            logger.error(f"Failed to rebuild cache from events: {e}", exc_info=True)
 
     def _validate_integrity_after_recovery(self, replay_from_timestamp: datetime):
         """

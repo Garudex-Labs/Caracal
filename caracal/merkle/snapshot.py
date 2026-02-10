@@ -29,9 +29,8 @@ class SnapshotData:
     """
     Deserialized snapshot data structure.
     
-    Contains aggregated spending per agent and metadata for recovery.
+    Contains snapshot metadata and state.
     """
-    agent_spending: Dict[str, Decimal]
     total_events: int
     merkle_root: str
     snapshot_timestamp: datetime
@@ -46,7 +45,6 @@ class RecoveryResult:
     """
     snapshot_id: UUID
     snapshot_timestamp: datetime
-    agents_restored: int
     replay_from_timestamp: datetime
 
 
@@ -55,7 +53,6 @@ class SnapshotManager:
     Manages ledger snapshots for fast recovery.
     
     Creates point-in-time snapshots of ledger state including:
-    - Aggregated spending per agent
     - Current Merkle root
     - Total event count
     
@@ -69,22 +66,19 @@ class SnapshotManager:
         self,
         db_session: Session,
         ledger_query=None,
-        merkle_verifier=None,
-        redis_cache=None
+        merkle_verifier=None
     ):
         """
         Initialize SnapshotManager.
         
         Args:
             db_session: SQLAlchemy database session
-            ledger_query: Optional LedgerQuery for aggregating spending
+            ledger_query: Optional LedgerQuery
             merkle_verifier: Optional MerkleVerifier for integrity validation
-            redis_cache: Optional RedisSpendingCache for cache restoration
         """
         self.db_session = db_session
         self.ledger_query = ledger_query
         self.merkle_verifier = merkle_verifier
-        self.redis_cache = redis_cache
         
         logger.info("SnapshotManager initialized")
 
@@ -95,10 +89,9 @@ class SnapshotManager:
         Steps:
         1. Get current timestamp
         2. Query total event count
-        3. Aggregate spending per agent
-        4. Get current Merkle root (latest batch)
-        5. Store snapshot in ledger_snapshots table
-        6. Return snapshot record
+        3. Get current Merkle root (latest batch)
+        4. Store snapshot in ledger_snapshots table
+        5. Return snapshot record
         
         Returns:
             LedgerSnapshot: Created snapshot record
@@ -120,20 +113,12 @@ class SnapshotManager:
             
             logger.debug(f"Total events in ledger: {total_events}")
             
-            # Aggregate spending per agent
-            agent_spending = self._aggregate_spending_per_agent()
-            logger.debug(f"Aggregated spending for {len(agent_spending)} agents")
-            
             # Get current Merkle root (latest batch)
             merkle_root = self._get_latest_merkle_root()
             logger.debug(f"Latest Merkle root: {merkle_root}")
             
             # Create snapshot data structure
             snapshot_data = {
-                "agent_spending": {
-                    str(agent_id): str(spending)
-                    for agent_id, spending in agent_spending.items()
-                },
                 "snapshot_timestamp": snapshot_timestamp.isoformat(),
                 "total_events": total_events,
             }
@@ -153,8 +138,7 @@ class SnapshotManager:
             self.db_session.commit()
             
             logger.info(
-                f"Created snapshot {snapshot.snapshot_id} with {total_events} events "
-                f"and {len(agent_spending)} agents"
+                f"Created snapshot {snapshot.snapshot_id} with {total_events} events"
             )
             
             return snapshot
@@ -163,36 +147,6 @@ class SnapshotManager:
             logger.error(f"Failed to create snapshot: {e}", exc_info=True)
             self.db_session.rollback()
             raise
-
-    def _aggregate_spending_per_agent(self) -> Dict[UUID, Decimal]:
-        """
-        Aggregate spending per agent from ledger events.
-        
-        Returns:
-            Dictionary mapping agent_id to total spending
-        """
-        try:
-            # Query aggregated spending per agent
-            result = self.db_session.execute(
-                select(
-                    LedgerEvent.agent_id,
-                    func.sum(LedgerEvent.cost).label("total_cost")
-                )
-                .group_by(LedgerEvent.agent_id)
-            )
-            
-            # Convert to dictionary
-            agent_spending = {}
-            for row in result:
-                agent_id = row.agent_id
-                total_cost = row.total_cost or Decimal('0')
-                agent_spending[agent_id] = total_cost
-            
-            return agent_spending
-            
-        except Exception as e:
-            logger.error(f"Failed to aggregate spending per agent: {e}", exc_info=True)
-            return {}
 
     def _get_latest_merkle_root(self) -> Optional[str]:
         """
@@ -246,22 +200,14 @@ class SnapshotManager:
             if snapshot is None:
                 raise ValueError(f"Snapshot {snapshot_id} not found")
             
-            # Deserialize snapshot data
-            agent_spending = {
-                UUID(agent_id): Decimal(spending)
-                for agent_id, spending in snapshot.snapshot_data["agent_spending"].items()
-            }
-            
             snapshot_data = SnapshotData(
-                agent_spending=agent_spending,
                 total_events=snapshot.total_events,
                 merkle_root=snapshot.merkle_root,
                 snapshot_timestamp=snapshot.snapshot_timestamp,
             )
             
             logger.info(
-                f"Loaded snapshot {snapshot_id} from {snapshot.snapshot_timestamp} "
-                f"with {len(agent_spending)} agents"
+                f"Loaded snapshot {snapshot_id} from {snapshot.snapshot_timestamp}"
             )
             
             return snapshot_data
@@ -278,9 +224,8 @@ class SnapshotManager:
         
         Steps:
         1. Load snapshot data
-        2. Restore aggregated spending to Redis cache
-        3. Get snapshot timestamp
-        4. Return timestamp for event replay
+        2. Get snapshot timestamp
+        3. Return timestamp for event replay
         
         Args:
             snapshot_id: UUID of snapshot to recover from
@@ -299,30 +244,6 @@ class SnapshotManager:
             # Load snapshot data
             snapshot_data = self.load_snapshot(snapshot_id)
             
-            # Restore spending to Redis cache if available
-            agents_restored = 0
-            if self.redis_cache:
-                logger.info("Restoring spending data to Redis cache")
-                
-                for agent_id, spending in snapshot_data.agent_spending.items():
-                    try:
-                        # Note: This is a simplified restoration
-                        # In production, you might want to restore more granular data
-                        self.redis_cache.set_agent_spending(
-                            str(agent_id),
-                            spending,
-                            snapshot_data.snapshot_timestamp
-                        )
-                        agents_restored += 1
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to restore spending for agent {agent_id}: {e}"
-                        )
-                
-                logger.info(f"Restored spending data for {agents_restored} agents to Redis")
-            else:
-                logger.warning("No Redis cache available, skipping cache restoration")
-            
             # Validate integrity with Merkle root if verifier available
             if self.merkle_verifier and snapshot_data.merkle_root:
                 try:
@@ -336,7 +257,6 @@ class SnapshotManager:
             result = RecoveryResult(
                 snapshot_id=snapshot_id,
                 snapshot_timestamp=snapshot_data.snapshot_timestamp,
-                agents_restored=agents_restored,
                 replay_from_timestamp=snapshot_data.snapshot_timestamp,
             )
             

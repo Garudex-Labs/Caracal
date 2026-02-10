@@ -61,16 +61,10 @@ data:
   NONCE_CACHE_SIZE: {{ .Values.gateway.replayProtection.nonceCacheSize | quote }}
   TIMESTAMP_WINDOW: {{ .Values.gateway.replayProtection.timestampWindow | quote }}
   
-  # Policy Cache
+  # Authority Policy Cache
   ENABLE_POLICY_CACHE: {{ .Values.gateway.policyCache.enabled | quote }}
   POLICY_CACHE_TTL: {{ .Values.gateway.policyCache.ttl | quote }}
   POLICY_CACHE_MAX_SIZE: {{ .Values.gateway.policyCache.maxSize | quote }}
-  
-  # Provisional Charges
-  PROVISIONAL_CHARGE_EXPIRATION: {{ .Values.gateway.provisionalCharges.expiration | quote }}
-  PROVISIONAL_CHARGE_MAX_TIMEOUT: {{ .Values.gateway.provisionalCharges.maxTimeout | quote }}
-  PROVISIONAL_CHARGE_CLEANUP_INTERVAL: {{ .Values.gateway.provisionalCharges.cleanupInterval | quote }}
-  PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE: {{ .Values.gateway.provisionalCharges.cleanupBatchSize | quote }}
   
   # MCP Adapter Configuration
   MCP_ADAPTER_LISTEN_ADDRESS: "0.0.0.0:{{ .Values.mcpAdapter.service.port }}"

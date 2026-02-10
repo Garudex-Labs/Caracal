@@ -109,7 +109,6 @@ class LedgerWriter:
         quantity: Decimal,
         metadata: Optional[Dict[str, Any]] = None,
         timestamp: Optional[datetime] = None,
-        provisional_charge_id: Optional[str] = None,
     ) -> LedgerEvent:
         """
         Append an event to the ledger.
@@ -123,7 +122,6 @@ class LedgerWriter:
             quantity: Amount of resource consumed
             metadata: Optional additional context
             timestamp: Optional timestamp (defaults to current UTC time)
-            provisional_charge_id: Optional UUID of provisional charge (v0.2)
             
         Returns:
             LedgerEvent: The created ledger event
@@ -152,12 +150,6 @@ class LedgerWriter:
         if timestamp is None:
             timestamp = datetime.utcnow()
         
-        # Add provisional_charge_id to metadata if provided (v0.2)
-        if provisional_charge_id is not None:
-            if metadata is None:
-                metadata = {}
-            metadata['provisional_charge_id'] = provisional_charge_id
-        
         # Create ledger event
         event = LedgerEvent(
             event_id=self._get_next_event_id(),
@@ -174,8 +166,7 @@ class LedgerWriter:
             
             logger.info(
                 f"Ledger write: event_id={event.event_id}, agent_id={agent_id}, "
-                f"resource={resource_type}, "
-                f"provisional_charge_id={provisional_charge_id}"
+                f"resource={resource_type}"
             )
             return event
         except (OSError, IOError) as e:

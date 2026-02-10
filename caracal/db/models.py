@@ -1,11 +1,11 @@
 """
-SQLAlchemy models for Caracal Core v0.2 PostgreSQL backend.
+SQLAlchemy models for Caracal Core v0.5 PostgreSQL backend.
 
 This module defines the database schema for:
-- Agent identities with parent-child relationships
-- Budget policies with delegation tracking
-- Ledger events for immutable spending records
-- Provisional charges for budget reservations
+- Principal identities with parent-child relationships
+- Authority policies with delegation tracking
+- Ledger events for immutable resource usage records
+- Execution mandates for authority enforcement
 """
 
 from datetime import datetime
