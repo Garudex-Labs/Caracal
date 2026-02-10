@@ -108,22 +108,6 @@ def simulate_database_operations(metrics: MetricsRegistry):
     print("✓ Recorded database connection error")
 
 
-def simulate_provisional_charges(metrics: MetricsRegistry):
-    """Simulate provisional charge operations."""
-    print("\n=== Simulating Provisional Charges ===")
-    
-    # Create provisional charge
-    metrics.record_provisional_charge_created("agent-123")
-    print("✓ Recorded provisional charge creation")
-    
-    # Release provisional charge
-    metrics.record_provisional_charge_released("agent-123", "final_charge")
-    print("✓ Recorded provisional charge release")
-    
-    # Expired charge
-    metrics.record_provisional_charge_expired()
-    print("✓ Recorded provisional charge expiration")
-    
     # Set active charges
     metrics.set_provisional_charges_active("agent-123", 5)
     print("✓ Updated active provisional charges count")
@@ -176,7 +160,7 @@ def main():
     simulate_gateway_requests(metrics)
     simulate_policy_evaluations(metrics)
     simulate_database_operations(metrics)
-    simulate_provisional_charges(metrics)
+
     simulate_circuit_breakers(metrics)
     
     # Generate metrics output
@@ -206,11 +190,7 @@ def main():
         if 'caracal_database' in line and not line.startswith('#'):
             print(f"  {line}")
     
-    # Show provisional charge metrics
-    print("\nProvisional Charge Metrics:")
-    for line in lines:
-        if 'caracal_provisional_charges' in line and not line.startswith('#'):
-            print(f"  {line}")
+
     
     # Show circuit breaker metrics
     print("\nCircuit Breaker Metrics:")

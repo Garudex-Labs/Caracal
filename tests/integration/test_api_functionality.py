@@ -15,7 +15,6 @@ from caracal.core.identity import AgentRegistry
 from caracal.core.policy import PolicyStore, PolicyEvaluator
 from caracal.core.ledger import LedgerWriter, LedgerQuery
 from caracal.core.delegation import DelegationTokenManager
-from caracal.core.provisional_charges import ProvisionalChargeManager
 from caracal.db.connection import get_session
 from caracal.config.settings import load_config
 
@@ -213,39 +212,7 @@ class TestAPIFunctionality:
         assert child.parent_agent_id == parent.agent_id
         assert child_policy.delegated_from_agent_id == parent.agent_id
     
-    def test_provisional_charges_api(self, agent_registry, db_session):
-        """
-        Test that provisional charges API works correctly.
-        
-        Requirements: 22.1
-        """
-        # Create agent
-        agent = agent_registry.register_agent(
-            name=f"test-agent-{uuid4()}",
-            owner="test-owner"
-        )
-        
-        # API: create provisional charge
-        pc_manager = ProvisionalChargeManager(db_session)
-        
-        charge = pc_manager.create_charge(
-            agent_id=agent.agent_id,
-            amount=Decimal("14.00"),
-            currency="USD",
-            resource_type="openai.gpt-5.2.output_tokens"
-        )
-        
-        assert charge.agent_id == agent.agent_id
-        assert charge.amount == Decimal("14.00")
-        assert charge.currency == "USD"
-        assert charge.released is False
-        
-        # API: release provisional charge
-        pc_manager.release_charge(charge.charge_id)
-        
-        # Verify charge is released
-        db_session.refresh(charge)
-        assert charge.released is True
+
     
     def test_policy_evaluator_api(self, agent_registry, policy_store, ledger_writer, db_session):
         """

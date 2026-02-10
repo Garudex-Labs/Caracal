@@ -274,7 +274,6 @@ class RedisConfig:
     ssl_ca_certs: str = ""  # Path to CA certificate for TLS
     ssl_certfile: str = ""  # Path to client certificate for TLS
     ssl_keyfile: str = ""  # Path to client private key for TLS
-    spending_cache_ttl: int = 86400  # 24 hours
     metrics_cache_ttl: int = 3600  # 1 hour
     allowlist_cache_ttl: int = 60  # 1 minute
 
@@ -719,7 +718,6 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         ssl_ca_certs=os.path.expanduser(redis_data.get('ssl_ca_certs', default_config.redis.ssl_ca_certs)),
         ssl_certfile=os.path.expanduser(redis_data.get('ssl_certfile', default_config.redis.ssl_certfile)),
         ssl_keyfile=os.path.expanduser(redis_data.get('ssl_keyfile', default_config.redis.ssl_keyfile)),
-        spending_cache_ttl=redis_data.get('spending_cache_ttl', default_config.redis.spending_cache_ttl),
         metrics_cache_ttl=redis_data.get('metrics_cache_ttl', default_config.redis.metrics_cache_ttl),
         allowlist_cache_ttl=redis_data.get('allowlist_cache_ttl', default_config.redis.allowlist_cache_ttl),
     )
@@ -1155,7 +1153,6 @@ def _validate_config(config: CaracalConfig) -> None:
         try:
             config.redis.port = int(config.redis.port)
             config.redis.db = int(config.redis.db)
-            config.redis.spending_cache_ttl = int(config.redis.spending_cache_ttl)
             config.redis.metrics_cache_ttl = int(config.redis.metrics_cache_ttl)
             config.redis.allowlist_cache_ttl = int(config.redis.allowlist_cache_ttl)
         except (ValueError, TypeError):
@@ -1190,11 +1187,6 @@ def _validate_config(config: CaracalConfig) -> None:
                 )
         
         # Validate cache TTL values
-        if config.redis.spending_cache_ttl < 1:
-            raise InvalidConfigurationError(
-                f"redis spending_cache_ttl must be at least 1, got {config.redis.spending_cache_ttl}"
-            )
-        
         if config.redis.metrics_cache_ttl < 1:
             raise InvalidConfigurationError(
                 f"redis metrics_cache_ttl must be at least 1, got {config.redis.metrics_cache_ttl}"

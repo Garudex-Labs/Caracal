@@ -240,7 +240,6 @@ redis:
   ssl_ca_certs: $REDIS_CERTS_DIR/ca.crt
   ssl_certfile: $REDIS_CERTS_DIR/caracal-client.crt
   ssl_keyfile: $REDIS_CERTS_DIR/caracal-client.key
-  spending_cache_ttl: 86400  # 24 hours
   metrics_cache_ttl: 3600  # 1 hour
   allowlist_cache_ttl: 60  # 1 minute
 EOF

@@ -420,12 +420,6 @@ class TestV02Configuration:
                     'version': '1.0.8',
                     'delegation_token_expiration_seconds': 3600,
                     'key_algorithm': 'ES256',
-                    'provisional_charges': {
-                        'default_expiration_seconds': 600,
-                        'timeout_minutes': 30,
-                        'cleanup_interval_seconds': 120,
-                        'cleanup_batch_size': 500,
-                    },
                 },
             }
             
@@ -437,8 +431,6 @@ class TestV02Configuration:
             assert config.ase.version == '1.0.8'
             assert config.ase.delegation_token_expiration_seconds == 3600
             assert config.ase.key_algorithm == 'ES256'
-            assert config.ase.provisional_charges.default_expiration_seconds == 600
-            assert config.ase.provisional_charges.timeout_minutes == 30
     
     def test_environment_variable_expansion(self):
         """Test environment variable expansion in configuration."""

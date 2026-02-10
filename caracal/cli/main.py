@@ -12,23 +12,12 @@ from typing import Optional
 
 import click
 
+
 from caracal._version import __version__
 from caracal.config.settings import get_default_config_path, load_config
 from caracal.exceptions import CaracalError, InvalidConfigurationError
 from caracal.logging_config import setup_logging
-
-
-# Global context object to share configuration across commands
-class CLIContext:
-    """Context object for CLI commands."""
-    
-    def __init__(self):
-        self.config = None
-        self.config_path = None
-        self.verbose = False
-
-
-pass_context = click.make_pass_decorator(CLIContext, ensure=True)
+from caracal.cli.context import CLIContext, pass_context
 
 
 @click.group()

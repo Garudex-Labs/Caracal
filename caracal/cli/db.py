@@ -15,7 +15,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 
-from caracal.cli.main import pass_context
+from caracal.cli.context import pass_context
 from caracal.db import (
     Base,
     DatabaseConfig,

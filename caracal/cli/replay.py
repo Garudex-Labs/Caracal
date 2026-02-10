@@ -33,7 +33,7 @@ except ImportError:
 # This avoids circular import issues
 def pass_context(f):
     """Decorator to pass CLI context - imported lazily to avoid circular imports."""
-    from caracal.cli.main import pass_context as _pass_context
+    from caracal.cli.context import pass_context as _pass_context
     return _pass_context(f)
 
 
