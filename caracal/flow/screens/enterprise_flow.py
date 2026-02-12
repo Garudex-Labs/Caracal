@@ -159,32 +159,32 @@ class EnterpriseFlow:
             (
                 "SSO Integration",
                 "Single Sign-On with SAML 2.0, OIDC/OAuth 2.0, Okta, Azure AD, Google Workspace",
-                "docs.caracal.dev/enterprise/sso",
+                "docs.garudexlabs.com/enterprise/sso",
             ),
             (
                 "Advanced Analytics",
                 "Real-time analytics dashboard, anomaly detection, usage pattern analysis, predictive insights",
-                "docs.caracal.dev/enterprise/analytics",
+                "docs.garudexlabs.com/enterprise/analytics",
             ),
             (
                 "Workflow Automation",
                 "Event-driven automation, custom workflow definitions, scheduled tasks, external integrations",
-                "docs.caracal.dev/enterprise/workflows",
+                "docs.garudexlabs.com/enterprise/workflows",
             ),
             (
                 "Compliance Reporting",
                 "SOC 2, ISO 27001, GDPR, HIPAA compliance reports, automated compliance checks",
-                "docs.caracal.dev/enterprise/compliance",
+                "docs.garudexlabs.com/enterprise/compliance",
             ),
             (
                 "Multi-Tenancy",
                 "Tenant isolation, per-tenant configuration, cross-tenant analytics, tenant management API",
-                "docs.caracal.dev/enterprise/multi-tenancy",
+                "docs.garudexlabs.com/enterprise/multi-tenancy",
             ),
             (
                 "Priority Support",
                 "24/7 support access, dedicated support engineer, SLA guarantees, direct escalation",
-                "docs.caracal.dev/enterprise/support",
+                "docs.garudexlabs.com/enterprise/support",
             ),
         ]
         

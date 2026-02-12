@@ -163,7 +163,7 @@ def get_enterprise_features() -> dict[str, Any]:
             "available": "sso" in available_features,
             "requires": "enterprise",
             "description": "Single Sign-On integration with SAML, OIDC, Okta, Azure AD, and Google Workspace",
-            "documentation_url": "https://docs.caracal.dev/enterprise/sso",
+            "documentation_url": "https://docs.garudexlabs.com/enterprise/sso",
         },
         {
             "name": "analytics",
@@ -171,7 +171,7 @@ def get_enterprise_features() -> dict[str, Any]:
             "available": "analytics" in available_features,
             "requires": "enterprise",
             "description": "Advanced analytics dashboard with anomaly detection and usage pattern analysis",
-            "documentation_url": "https://docs.caracal.dev/enterprise/analytics",
+            "documentation_url": "https://docs.garudexlabs.com/enterprise/analytics",
         },
         {
             "name": "workflows",
@@ -179,7 +179,7 @@ def get_enterprise_features() -> dict[str, Any]:
             "available": "workflows" in available_features,
             "requires": "enterprise",
             "description": "Event-driven workflow automation engine with custom workflow definitions",
-            "documentation_url": "https://docs.caracal.dev/enterprise/workflows",
+            "documentation_url": "https://docs.garudexlabs.com/enterprise/workflows",
         },
         {
             "name": "compliance",
@@ -187,7 +187,7 @@ def get_enterprise_features() -> dict[str, Any]:
             "available": "compliance" in available_features,
             "requires": "enterprise",
             "description": "Compliance reporting for SOC 2, ISO 27001, GDPR, and HIPAA",
-            "documentation_url": "https://docs.caracal.dev/enterprise/compliance",
+            "documentation_url": "https://docs.garudexlabs.com/enterprise/compliance",
         },
         {
             "name": "multi_tenancy",
@@ -195,7 +195,7 @@ def get_enterprise_features() -> dict[str, Any]:
             "available": "multi_tenancy" in available_features,
             "requires": "enterprise",
             "description": "Multi-tenancy support with tenant isolation and per-tenant configuration",
-            "documentation_url": "https://docs.caracal.dev/enterprise/multi-tenancy",
+            "documentation_url": "https://docs.garudexlabs.com/enterprise/multi-tenancy",
         },
         {
             "name": "priority_support",
@@ -203,7 +203,7 @@ def get_enterprise_features() -> dict[str, Any]:
             "available": "priority_support" in available_features,
             "requires": "enterprise",
             "description": "24/7 priority support with dedicated support engineer and SLA guarantees",
-            "documentation_url": "https://docs.caracal.dev/enterprise/support",
+            "documentation_url": "https://docs.garudexlabs.com/enterprise/support",
         },
     ]
     

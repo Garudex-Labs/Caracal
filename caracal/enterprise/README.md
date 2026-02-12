@@ -202,7 +202,7 @@ To upgrade to Caracal Enterprise:
 
 - **Website**: https://caracal.dev/enterprise
 - **Email**: enterprise@caracal.dev
-- **Documentation**: https://docs.caracal.dev/enterprise
+- **Documentation**: https://docs.garudexlabs.com/enterprise
 
 ## Security Considerations
 
