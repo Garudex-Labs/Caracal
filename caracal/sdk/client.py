@@ -148,7 +148,7 @@ class CaracalClient:
             warnings.warn(
                 "File-based storage for agent registry is deprecated and will be removed in v0.3. "
                 "Please migrate to PostgreSQL backend. "
-                "See migration guide: https://caracal.dev/docs/migration/v0.1-to-v0.2",
+                "See migration guide: https://garudexlabs.com/docs/migration/v0.1-to-v0.2",
                 DeprecationWarning,
                 stacklevel=3
             )
@@ -158,7 +158,7 @@ class CaracalClient:
             warnings.warn(
                 "File-based storage for ledger is deprecated and will be removed in v0.3. "
                 "Please migrate to PostgreSQL backend. "
-                "See migration guide: https://caracal.dev/docs/migration/v0.1-to-v0.2",
+                "See migration guide: https://garudexlabs.com/docs/migration/v0.1-to-v0.2",
                 DeprecationWarning,
                 stacklevel=3
             )

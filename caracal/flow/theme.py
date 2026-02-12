@@ -30,6 +30,11 @@ class Colors:
     HINT = "#5fd7ff"         # Cyan - shortcuts, tips
     DIM = "#808080"          # Gray - disabled, secondary
     
+    # Additional semantic colors
+    TEXT = NEUTRAL           # Regular text (alias for NEUTRAL)
+    LINK = HINT              # Hyperlinks (cyan for visibility)
+    BORDER = DIM             # Borders and separators
+    
     # Background colors
     BG_DARK = "#1a1a2e"      # Dark background
     BG_SELECTED = "#2d2d44"  # Selected item background
