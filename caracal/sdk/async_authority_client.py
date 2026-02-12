@@ -451,3 +451,136 @@ class AsyncAuthorityClient:
         )
         
         return response
+
+    # ------------------------------------------------------------------
+    # Health & discovery
+    # ------------------------------------------------------------------
+
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Check connectivity and service health (async).
+
+        Returns:
+            Dictionary with at least ``{"status": "ok"}`` on success.
+
+        Raises:
+            ConnectionError: If the service is unreachable.
+
+        Example:
+            >>> async with AsyncAuthorityClient(
+            ...     base_url=os.environ["CARACAL_AUTHORITY_URL"],
+            ...     api_key=os.environ.get("CARACAL_API_KEY"),
+            ... ) as client:
+            ...     health = await client.health_check()
+            ...     assert health["status"] == "ok"
+        """
+        logger.debug("Performing health check (async)")
+        return await self._make_request(method="GET", endpoint="/health")
+
+    # ------------------------------------------------------------------
+    # Principal management
+    # ------------------------------------------------------------------
+
+    async def register_principal(
+        self,
+        name: str,
+        principal_type: str = "agent",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Register a new principal (user, agent, or service) — async.
+
+        See :meth:`AuthorityClient.register_principal` for full documentation.
+        """
+        logger.info(f"Registering principal (async): name={name}, type={principal_type}")
+
+        request_data: Dict[str, Any] = {
+            "name": name,
+            "principal_type": principal_type,
+        }
+        if metadata:
+            request_data["metadata"] = metadata
+
+        response = await self._make_request(
+            method="POST",
+            endpoint="/principals",
+            data=request_data,
+        )
+
+        logger.info(f"Principal registered (async): {response.get('principal_id')}")
+        return response
+
+    async def list_principals(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        List registered principals (paginated) — async.
+
+        See :meth:`AuthorityClient.list_principals` for full documentation.
+        """
+        logger.debug(f"Listing principals (async): page={page}, page_size={page_size}")
+        return await self._make_request(
+            method="GET",
+            endpoint="/principals",
+            params={"page": page, "page_size": page_size},
+        )
+
+    # ------------------------------------------------------------------
+    # Policy management
+    # ------------------------------------------------------------------
+
+    async def create_policy(
+        self,
+        principal_id: str,
+        allowed_resource_patterns: List[str],
+        allowed_actions: List[str],
+        max_validity_seconds: int = 86400,
+        delegation_depth: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Create an authority policy for a principal — async.
+
+        See :meth:`AuthorityClient.create_policy` for full documentation.
+        """
+        logger.info(f"Creating policy (async) for principal {principal_id}")
+
+        request_data: Dict[str, Any] = {
+            "principal_id": principal_id,
+            "allowed_resource_patterns": allowed_resource_patterns,
+            "allowed_actions": allowed_actions,
+            "max_validity_seconds": max_validity_seconds,
+            "allow_delegation": delegation_depth > 0,
+            "max_delegation_depth": delegation_depth,
+        }
+
+        response = await self._make_request(
+            method="POST",
+            endpoint="/policies",
+            data=request_data,
+        )
+
+        logger.info(f"Policy created (async): {response.get('policy_id')}")
+        return response
+
+    async def list_policies(
+        self,
+        principal_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        List authority policies (paginated), optionally filtered by principal — async.
+
+        See :meth:`AuthorityClient.list_policies` for full documentation.
+        """
+        logger.debug(f"Listing policies (async): principal={principal_id}, page={page}")
+        params: Dict[str, Any] = {"page": page, "page_size": page_size}
+        if principal_id:
+            params["principal_id"] = principal_id
+        return await self._make_request(
+            method="GET",
+            endpoint="/policies",
+            params=params,
+        )
