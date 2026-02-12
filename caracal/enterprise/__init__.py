@@ -13,8 +13,8 @@ Enterprise Features:
 - Multi-Tenancy Support
 - Priority Support
 
-For licensing information, visit: https://caracal.dev/enterprise
-Contact: enterprise@caracal.dev
+For licensing information, visit: https://garudexlabs.com
+Contact: support@garudexlabs.com
 """
 
 from caracal.enterprise.exceptions import EnterpriseFeatureRequired

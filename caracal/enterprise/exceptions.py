@@ -21,7 +21,7 @@ class EnterpriseFeatureRequired(Exception):
         >>> raise EnterpriseFeatureRequired(
         ...     feature="SSO Authentication",
         ...     message="Single Sign-On integration requires Caracal Enterprise. "
-        ...             "Visit https://caracal.dev/enterprise for licensing information."
+        ...             "Visit https://garudexlabs.com for licensing information."
         ... )
     """
     
@@ -48,6 +48,6 @@ class EnterpriseFeatureRequired(Exception):
             "error": "enterprise_feature_required",
             "feature": self.feature,
             "message": self.message,
-            "upgrade_url": "https://caracal.dev/enterprise",
-            "contact_email": "enterprise@caracal.dev",
+            "upgrade_url": "https://garudexlabs.com",
+            "contact_email": "support@garudexlabs.com",
         }

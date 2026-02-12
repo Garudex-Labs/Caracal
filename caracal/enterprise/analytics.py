@@ -254,7 +254,7 @@ class OpenSourceAnalyticsExporter(AnalyticsExporter):
             feature="Anomaly Detection",
             message=(
                 "Anomaly detection requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -279,7 +279,7 @@ class OpenSourceAnalyticsExporter(AnalyticsExporter):
             feature="Usage Pattern Analysis",
             message=(
                 "Usage pattern analysis requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -302,7 +302,7 @@ class OpenSourceAnalyticsExporter(AnalyticsExporter):
             feature="Predictive Analytics",
             message=(
                 "Predictive analytics requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -327,7 +327,7 @@ class OpenSourceAnalyticsExporter(AnalyticsExporter):
             feature="Custom Analytics Reports",
             message=(
                 "Custom analytics reports require Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
 

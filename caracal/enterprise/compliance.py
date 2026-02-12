@@ -394,7 +394,7 @@ class OpenSourceComplianceReporter(ComplianceReporter):
             feature="Automated Compliance Checks",
             message=(
                 "Automated compliance checks require Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
 
