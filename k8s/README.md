@@ -453,5 +453,5 @@ kubectl delete namespace caracal
 For issues and questions:
 
 - GitHub Issues: https://github.com/caracal/caracal-core/issues
-- Documentation: https://caracal.dev/docs
-- Community: https://caracal.dev/community
+- Documentation: https://garudexlabs.com/docs
+- Community: https://garudexlabs.com/community

@@ -15,7 +15,7 @@ This Helm chart deploys Caracal Core v0.5 on a Kubernetes cluster.
 ### 1. Add Helm Repository (if published)
 
 ```bash
-helm repo add caracal https://charts.caracal.dev
+helm repo add caracal https://charts.garudexlabs.com
 helm repo update
 ```
 
@@ -361,5 +361,5 @@ kubectl get secret caracal-secrets -n caracal -o yaml
 For issues and questions:
 
 - GitHub Issues: https://github.com/caracal/caracal-core/issues
-- Documentation: https://caracal.dev/docs
-- Community: https://caracal.dev/community
+- Documentation: https://garudexlabs.com/docs
+- Community: https://garudexlabs.com/community
