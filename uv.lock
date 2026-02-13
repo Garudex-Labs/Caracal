@@ -51,16 +51,16 @@ wheels = [
 
 [[package]]
 name = "ase-protocol"
-version = "1.1.0"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "pydantic" },
     { name = "pyjwt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/9f/027274f945b4c7aa4af5018159b047c436ca84055a9f19e3efe609959a8e/ase_protocol-1.1.0.tar.gz", hash = "sha256:b2779dd00748aeb29a54964dd26ce8c45fb4a8b7978361ff8b892b5d5cdb2de1", size = 87915, upload-time = "2026-02-02T11:12:36.989Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/9f/027274f945b4c7aa4af5018159b047c436ca84055a9f19e3efe609959a8e/ase_protocol-1.2.0.tar.gz", hash = "sha256:b2779dd00748aeb29a54964dd26ce8c45fb4a8b7978361ff8b892b5d5cdb2de1", size = 87915, upload-time = "2026-02-02T11:12:36.989Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/5b/082fc3d310f2cfc51c6fbb64798257df296ec4554d7655e68a464b3be3b0/ase_protocol-1.1.0-py3-none-any.whl", hash = "sha256:8492245acdda581419b09eea3790be5edce08b08ef2f0ea8f423d6ecec33c0cd", size = 48225, upload-time = "2026-02-02T11:12:33.538Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/5b/082fc3d310f2cfc51c6fbb64798257df296ec4554d7655e68a464b3be3b0/ase_protocol-1.2.0-py3-none-any.whl", hash = "sha256:8492245acdda581419b09eea3790be5edce08b08ef2f0ea8f423d6ecec33c0cd", size = 48225, upload-time = "2026-02-02T11:12:33.538Z" },
 ]
 
 [[package]]
@@ -265,7 +265,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.12.0" },
-    { name = "ase-protocol", specifier = "==1.1.0" },
+    { name = "ase-protocol", specifier = "==1.2.0" },
     { name = "bcrypt", specifier = ">=4.1.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "cachetools", specifier = ">=5.3.0" },
