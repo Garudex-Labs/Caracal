@@ -102,7 +102,7 @@ class AuthorityClient:
             # Set default headers
             self.session.headers.update({
                 "Content-Type": "application/json",
-                "User-Agent": "Caracal-Authority-SDK/0.5.0"
+                "User-Agent": "Caracal-Authority-SDK/0.6.0"
             })
             
             if self.api_key:
