@@ -106,21 +106,215 @@ def _test_db_connection(config: dict) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _step_workspace(wizard: Wizard) -> Any:
+    """Step 0: Workspace selection/creation/deletion.
+    
+    CRITICAL: This step cannot be skipped. A workspace must be selected
+    or created before proceeding to the main menu, as it defines where
+    all configuration and data will be stored.
+    
+    Returns:
+        str: Path to the selected/created workspace
+        
+    Raises:
+        RuntimeError: If no workspace is selected (should never happen)
+        KeyboardInterrupt: If user cancels (propagates to caller)
+    """
+    console = wizard.console
+    prompt = FlowPrompt(console)
+    
+    from caracal.flow.workspace import WorkspaceManager, set_workspace
+    
+    console.print(f"  [{Colors.NEUTRAL}]Caracal can manage multiple workspaces (organizations).")
+    console.print(f"  [{Colors.DIM}]Each workspace has its own configuration, data, and agents.[/]")
+    console.print()
+    
+    # List existing workspaces
+    workspaces = WorkspaceManager.list_workspaces()
+    
+    if workspaces:
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Existing workspaces:[/]")
+        console.print()
+        
+        from rich.table import Table
+        table = Table(show_header=True, header_style=f"bold {Colors.PRIMARY}", border_style=Colors.DIM)
+        table.add_column("#", style=Colors.NEUTRAL, width=4)
+        table.add_column("Name", style=Colors.INFO)
+        table.add_column("Path", style=Colors.DIM)
+        
+        for idx, ws in enumerate(workspaces, 1):
+            table.add_row(str(idx), ws["name"], ws["path"])
+        
+        console.print(table)
+        console.print()
+    
+    # Present options
+    choices = []
+    if workspaces:
+        choices.append("Select existing workspace")
+    choices.extend([
+        "Create new workspace",
+    ])
+    if workspaces:
+        choices.append("Delete workspace")
+    
+    action = prompt.select(
+        "What would you like to do?",
+        choices=choices,
+    )
+    
+    # Handle workspace selection
+    if action == "Select existing workspace":
+        workspace_names = [ws["name"] for ws in workspaces]
+        selected_name = prompt.select(
+            "Select workspace",
+            choices=workspace_names,
+        )
+        
+        selected_ws = next(ws for ws in workspaces if ws["name"] == selected_name)
+        workspace_path = Path(selected_ws["path"])
+        
+        console.print()
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Selected workspace: {selected_name}[/]")
+        console.print(f"  [{Colors.DIM}]Path: {workspace_path}[/]")
+        
+        # Set the selected workspace as active
+        set_workspace(workspace_path)
+        wizard.context["workspace_path"] = str(workspace_path)
+        wizard.context["workspace_name"] = selected_name
+        wizard.context["workspace_existing"] = True
+        
+        return str(workspace_path)
+    
+    elif action == "Create new workspace":
+        console.print()
+        workspace_name = prompt.text(
+            "Workspace name",
+            default="my-workspace",
+        )
+        
+        # Generate path from name
+        default_base = Path.home() / ".caracal"
+        workspace_path = default_base / workspace_name.lower().replace(" ", "-")
+        
+        custom_path = prompt.confirm(
+            f"Use default path ({workspace_path})?",
+            default=True,
+        )
+        
+        if not custom_path:
+            path_str = prompt.text(
+                "Enter workspace directory path",
+                default=str(workspace_path),
+            )
+            workspace_path = Path(path_str).expanduser()
+        
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Creating workspace: {workspace_name}[/]")
+        console.print(f"  [{Colors.DIM}]Path: {workspace_path}[/]")
+        
+        # Create directory
+        workspace_path.mkdir(parents=True, exist_ok=True)
+        
+        # Register workspace
+        WorkspaceManager.register_workspace(workspace_name, workspace_path)
+        
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace created and registered[/]")
+        
+        # Set the new workspace as active
+        set_workspace(workspace_path)
+        wizard.context["workspace_path"] = str(workspace_path)
+        wizard.context["workspace_name"] = workspace_name
+        wizard.context["workspace_existing"] = False
+        wizard.context["fresh_start"] = True
+        
+        return str(workspace_path)
+    
+    elif action == "Delete workspace":
+        workspace_names = [ws["name"] for ws in workspaces]
+        selected_name = prompt.select(
+            "Select workspace to delete",
+            choices=workspace_names,
+        )
+        
+        selected_ws = next(ws for ws in workspaces if ws["name"] == selected_name)
+        workspace_path = Path(selected_ws["path"])
+        
+        console.print()
+        console.print(f"  [{Colors.WARNING}]⚠️  WARNING: This will delete workspace '{selected_name}'[/]")
+        console.print(f"  [{Colors.DIM}]Path: {workspace_path}[/]")
+        console.print()
+        
+        delete_files = prompt.confirm(
+            "Also delete workspace directory from disk?",
+            default=False,
+        )
+        
+        confirm = prompt.confirm(
+            f"Are you sure you want to delete '{selected_name}'?",
+            default=False,
+        )
+        
+        if confirm:
+            WorkspaceManager.delete_workspace(
+                workspace_path,
+                delete_directory=delete_files,
+            )
+            console.print()
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace deleted[/]")
+            console.print()
+            
+            # Restart workspace selection
+            return _step_workspace(wizard)
+        else:
+            console.print()
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Deletion cancelled[/]")
+            console.print()
+            # Restart workspace selection
+            return _step_workspace(wizard)
+    
+    # This should never be reached, but handle it gracefully
+    console.print()
+    console.print(f"  [{Colors.ERROR}]{Icons.ERROR} No workspace action selected[/]")
+    raise RuntimeError("Workspace selection is required to continue")
+
+
 def _step_config(wizard: Wizard) -> Any:
     """Step 1: Configuration setup."""
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    default_path = Path.home() / ".caracal"
+    from caracal.flow.workspace import get_workspace
+    
+    # If workspace was selected/created in previous step, use that
+    workspace_path = wizard.context.get("workspace_path")
+    if workspace_path:
+        config_path = Path(workspace_path)
+    else:
+        config_path = get_workspace().root
+    
+    # If workspace was just created, skip the existing config check
+    if wizard.context.get("workspace_existing") is False:
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Initializing new workspace configuration...[/]")
+        
+        try:
+            _initialize_caracal_dir(config_path, wipe=True)
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration initialized at {config_path}[/]")
+        except Exception as e:
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed: {e}[/]")
+            raise
+        
+        wizard.context["config_path"] = str(config_path)
+        return str(config_path)
     
     console.print(f"  [{Colors.NEUTRAL}]Caracal stores its configuration and data files in a directory.")
-    console.print(f"  [{Colors.DIM}]Default location: {default_path}[/]")
+    console.print(f"  [{Colors.DIM}]Location: {config_path}[/]")
     console.print()
     
     # Determine if we should wipe based on whether we found existing config and user rejected it
     wipe = False
-    if default_path.exists() and (default_path / "config.yaml").exists():
-        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration found at {default_path}[/]")
+    if config_path.exists() and (config_path / "config.yaml").exists():
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration found at {config_path}[/]")
         console.print()
         
         use_existing = prompt.confirm(
@@ -129,30 +323,17 @@ def _step_config(wizard: Wizard) -> Any:
         )
         
         if use_existing:
-            wizard.context["config_path"] = str(default_path)
+            wizard.context["config_path"] = str(config_path)
             
             # Check if user wants to start fresh with data
             if prompt.confirm("Reset database (clear all data)?", default=False):
                 wizard.context["fresh_start"] = True
                 
-            return str(default_path)
+            return str(config_path)
         else:
             wipe = True
             wizard.context["fresh_start"] = True
     console.print()
-    use_default = prompt.confirm(
-        f"Use default location ({default_path})?",
-        default=True,
-    )
-    
-    if use_default:
-        config_path = default_path
-    else:
-        path_str = prompt.text(
-            "Enter configuration directory path",
-            default=str(default_path),
-        )
-        config_path = Path(path_str).expanduser()
     
     # Initialize directory structure
     console.print()
@@ -228,102 +409,88 @@ def _step_database(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    console.print(f"  [{Colors.NEUTRAL}]Caracal can use either file-based storage or PostgreSQL.")
-    console.print(f"  [{Colors.DIM}]File-based storage is simpler and works out of the box.[/]")
-    console.print(f"  [{Colors.DIM}]PostgreSQL is recommended for production use.[/]")
+    # 1. Try automatic setup from .env
+    env_config = _get_db_config_from_env()
+    if env_config.get("password"):
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing PostgreSQL connection...[/]")
+        
+        success, error = _test_db_connection(env_config)
+        
+        if success:
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL connected successfully![/]")
+            console.print(f"  [{Colors.DIM}]Host: {env_config['host']}:{env_config['port']}[/]")
+            console.print(f"  [{Colors.DIM}]Database: {env_config['database']}[/]")
+            console.print()
+            
+            # Auto-configure without prompting
+            wizard.context["database"] = {**env_config, "type": "postgresql"}
+            wizard.context["database_auto_configured"] = True
+            return wizard.context["database"]
+        else:
+            console.print(f"  [{Colors.WARNING}]PostgreSQL connection failed: {error}[/]")
+            if "password authentication failed" in error.lower():
+                console.print(f"  [{Colors.HINT}]{Icons.INFO} Tip: Run './reset_postgres.sh' to sync credentials.[/]")
+            console.print()
+    
+    # 2. Ask if user wants PostgreSQL (simple Y/N)
+    console.print(f"  [{Colors.NEUTRAL}]Database Setup:[/]")
+    console.print(f"  [{Colors.DIM}]• PostgreSQL: Production-ready, scalable database[/]")
+    console.print(f"  [{Colors.DIM}]• SQLite: Simple file-based storage (default)[/]")
     console.print()
     
     use_postgres = prompt.confirm(
-        "Configure PostgreSQL database?",
+        "Use PostgreSQL?",
         default=False,
     )
     
     if not use_postgres:
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Using file-based storage[/]")
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Using SQLite (file-based storage)[/]")
         wizard.context["database"] = "file"
         return "file"
     
-    # 1. Automatic Setup from .env
-    env_config = _get_db_config_from_env()
-    if env_config.get("password"):
-        console.print()
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Found database credentials in .env[/]")
-        console.print(f"  [{Colors.DIM}]Host: {env_config['host']}:{env_config['port']}[/]")
-        console.print(f"  [{Colors.DIM}]Database: {env_config['database']}[/]")
-        console.print(f"  [{Colors.DIM}]Username: {env_config['username']}[/]")
-        console.print()
-        
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing connection...[/]")
-        success, error = _test_db_connection(env_config)
-        
-        if success:
-            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connection successful![/]")
-            wizard.context["database"] = {**env_config, "type": "postgresql"}
-            return wizard.context["database"]
-        else:
-            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection failed: {error}[/]")
-            if "password authentication failed" in error.lower():
-                console.print()
-                console.print(f"  [{Colors.HINT}]{Icons.INFO} Tip: Your .env credentials might be out of sync with Docker.[/]")
-                console.print(f"  [{Colors.HINT}]      Run './reset_postgres.sh' to re-apply .env credentials.[/]")
-            console.print()
-            console.print(f"  [{Colors.NEUTRAL}]Let's verify or update the connection details manually.[/]")
-
-    # 2. Manual Configuration (Fallback or Correction)
+    # 3. Auto-setup PostgreSQL with standard config
     console.print()
-    console.print(f"  [{Colors.INFO}]PostgreSQL Connection Details:[/]")
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Setting up PostgreSQL...[/]")
+    
+    # Use environment config or defaults
+    config = {
+        "host": env_config.get("host", "localhost"),
+        "port": int(env_config.get("port", 5432)),
+        "database": env_config.get("database", "caracal"),
+        "username": env_config.get("username", "caracal"),
+        "password": env_config.get("password", "caracal"),
+    }
+    
+    console.print(f"  [{Colors.DIM}]Host: {config['host']}:{config['port']}[/]")
+    console.print(f"  [{Colors.DIM}]Database: {config['database']}[/]")
+    console.print(f"  [{Colors.DIM}]Username: {config['username']}[/]")
     console.print()
     
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        host = prompt.text("Host", default=env_config["host"])
-        port = prompt.number("Port", default=env_config["port"], min_value=1, max_value=65535)
-        database = prompt.text("Database name", default=env_config["database"])
-        username = prompt.text("Username", default=env_config["username"])
-        password = prompt.password("Password", default=env_config["password"])
+    # Test the connection
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing connection...[/]")
+    success, error = _test_db_connection(config)
+    
+    if success:
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL configured successfully![/]")
         
-        config = {
-            "host": host,
-            "port": int(port),
-            "database": database,
-            "username": username,
-            "password": password,
-        }
+        # Save config to .env
+        if _save_db_config_to_env(config):
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration saved to .env[/]")
         
-        # Test the connection
+        wizard.context["database"] = {**config, "type": "postgresql"}
+        return wizard.context["database"]
+    else:
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection failed: {error}[/]")
         console.print()
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing PostgreSQL connection...[/]")
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Falling back to SQLite[/]")
+        console.print(f"  [{Colors.DIM}]Make sure PostgreSQL is running on {config['host']}:{config['port']}[/]")
+        console.print(f"  [{Colors.DIM}]You can configure PostgreSQL later from settings[/]")
+        console.print()
         
-        success, error = _test_db_connection(config)
-        if success:
-            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connection successful![/]")
-            
-            # Save updated config back to .env
-            if _save_db_config_to_env(config):
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration saved to .env[/]")
-            
-            wizard.context["database"] = {**config, "type": "postgresql"}
-            return wizard.context["database"]
-            
-        else:
-            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection failed: {error}[/]")
-            console.print()
-            
-            if attempt < max_attempts - 1:
-                retry = prompt.confirm("Try again with different credentials?", default=True)
-                if not retry:
-                    break
-                console.print()
-            else:
-                console.print(f"  [{Colors.WARNING}]Maximum attempts reached.[/]")
-    
-    # Fall back to SQLite
-    console.print()
-    console.print(f"  [{Colors.INFO}]{Icons.INFO} Falling back to SQLite[/]")
-    console.print(f"  [{Colors.DIM}]You can configure PostgreSQL later in settings[/]")
-    
-    wizard.context["database"] = "file"
-    return "file"
+        wizard.context["database"] = "file"
+        return "file"
 
 
 def _step_principal(wizard: Wizard) -> Any:
@@ -331,24 +498,31 @@ def _step_principal(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
+    # Get system username for better defaults
+    import os
+    import getpass
+    system_user = getpass.getuser()
+    default_name = f"{system_user}-admin"
+    default_email = f"{system_user}@localhost"
+    
     console.print(f"  [{Colors.NEUTRAL}]Let's register your first principal.")
-    console.print(f"  [{Colors.DIM}]Principals are identities that can hold authority.[/]")
+    console.print(f"  [{Colors.DIM}]This will be your admin user account.[/]")
     console.print()
+    
+    principal_type = prompt.select(
+        "Principal type",
+        choices=["user", "agent", "service"],
+        default="user",
+    )
     
     name = prompt.text(
         "Principal name",
-        default="my-first-principal",
+        default=default_name,
     )
     
     owner = prompt.text(
         "Owner email",
-        default="admin@example.com",
-    )
-    
-    principal_type = prompt.select(
-        "Principal type",
-        choices=["agent", "user", "service"],
-        default="agent",
+        default=default_email,
     )
     
     # Store for later
@@ -463,6 +637,13 @@ def run_onboarding(
     # Define wizard steps
     steps = [
         WizardStep(
+            key="workspace",
+            title="Workspace Setup",
+            description="Select, create, or delete a workspace",
+            action=_step_workspace,
+            skippable=False,
+        ),
+        WizardStep(
             key="config",
             title="Configuration Setup",
             description="Set up Caracal's configuration directory and files",
@@ -520,6 +701,17 @@ def run_onboarding(
     
     results = wizard.run()
     
+    # Validate that workspace was selected (critical requirement)
+    if not wizard.context.get("workspace_path"):
+        console.print()
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} No workspace selected. Cannot proceed without a workspace.[/]")
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} A workspace is required to store your configuration and data.[/]")
+        console.print()
+        results["workspace_configured"] = False
+        return results
+    
+    results["workspace_configured"] = True
+    
     # Show summary
     wizard.show_summary()
     
@@ -531,6 +723,7 @@ def run_onboarding(
         from caracal.db.models import Principal, AuthorityPolicy
         from datetime import datetime
         from uuid import uuid4
+        from caracal.flow.workspace import get_workspace
         
         # Load fresh config (in case it was just initialized)
         config = load_config()
@@ -543,9 +736,8 @@ def run_onboarding(
             
             # Update config file with database settings
             import yaml
-            from pathlib import Path
             
-            config_path = wizard.context.get("config_path", Path.home() / ".caracal")
+            config_path = wizard.context.get("config_path", get_workspace().root)
             config_file = Path(config_path) / "config.yaml"
             
             if config_file.exists():
@@ -573,8 +765,25 @@ def run_onboarding(
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Using SQLite (file-based storage)[/]")
         
-        # Setup database connection
-        if hasattr(config, 'database') and config.database:
+        # Setup database connection - prioritize wizard results over existing config
+        if db_config_data == "file":
+            # User explicitly selected SQLite in wizard
+            db_config = DatabaseConfig(
+                type='sqlite',
+                file_path=str(get_workspace().db_path),
+            )
+        elif db_config_data == "postgresql":
+            # User explicitly selected PostgreSQL in wizard (should have env vars)
+            db_config = DatabaseConfig(
+                type='postgresql',
+                host=env_vars.get('PGHOST', 'localhost'),
+                port=int(env_vars.get('PGPORT', '5432')),
+                database=env_vars['PGDATABASE'],
+                user=env_vars['PGUSER'],
+                password=env_vars.get('PGPASSWORD', ''),
+            )
+        elif hasattr(config, 'database') and config.database:
+            # Fall back to existing config if wizard didn't complete
             db_config = DatabaseConfig(
                 type=getattr(config.database, 'type', 'sqlite'),
                 host=getattr(config.database, 'host', 'localhost'),
@@ -582,22 +791,29 @@ def run_onboarding(
                 database=getattr(config.database, 'database', 'caracal'),
                 user=getattr(config.database, 'user', 'caracal'),
                 password=getattr(config.database, 'password', ''),
-                file_path=getattr(config.database, 'file_path', str(Path.home() / ".caracal" / "caracal.db")),
+                file_path=getattr(config.database, 'file_path', str(get_workspace().db_path)),
             )
         else:
             # Default to SQLite
             db_config = DatabaseConfig(
                 type='sqlite',
-                file_path=str(Path.home() / ".caracal" / "caracal.db"),
+                file_path=str(get_workspace().db_path),
             )
         
         db_manager = DatabaseConnectionManager(db_config)
         db_manager.initialize()
         
-        # If this was a fresh start (user chose to wipe config), clean up the database too
-        if wizard.context.get("fresh_start"):
+        # Only clean database if explicitly requested or if it's a new workspace with fresh start
+        # Do NOT clean database if it was auto-configured from .env without user confirmation
+        should_clean = (
+            wizard.context.get("fresh_start") and 
+            not wizard.context.get("database_auto_configured")
+        )
+        
+        if should_clean:
             try:
-                console.print(f"  [{Colors.INFO}]{Icons.INFO} Cleaning up old data...[/]")
+                console.print()
+                console.print(f"  [{Colors.INFO}]{Icons.INFO} Cleaning database for fresh start...[/]")
                 with db_manager.session_scope() as db_session:
                     from sqlalchemy import text
                     # Truncate tables in correct order (mandates -> policies -> principals)
@@ -609,7 +825,7 @@ def run_onboarding(
                         db_session.execute(text("DELETE FROM execution_mandates"))
                         db_session.execute(text("DELETE FROM authority_policies"))
                         db_session.execute(text("DELETE FROM principals"))
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database cleaned.[/]")
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database cleaned for fresh start.[/]")
             except Exception as e:
                 console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Failed to clean database: {e}[/]")
         
