@@ -356,36 +356,48 @@ except Exception as e:
 
 
 @cli.command()
+@click.option(
+    '--workspace',
+    '-w',
+    type=click.Path(path_type=Path),
+    default=None,
+    help='Workspace directory (default: ~/.caracal/)',
+)
 @pass_context
-def init(ctx: CLIContext):
+def init(ctx: CLIContext, workspace: Optional[Path]):
     """
     Initialize Caracal Core directory structure and configuration.
     
-    Creates ~/.caracal/ directory with default configuration and data files.
+    Creates workspace directory with default configuration and data files.
     """
     try:
         import os
         import shutil
+        from caracal.flow.workspace import get_workspace, set_workspace, WorkspaceManager
         
-        caracal_dir = Path.home() / ".caracal"
+        if workspace:
+            ws = set_workspace(workspace)
+        else:
+            ws = get_workspace()
+        
+        caracal_dir = ws.root
         
         # Create directory structure
-        caracal_dir.mkdir(parents=True, exist_ok=True)
-        (caracal_dir / "backups").mkdir(exist_ok=True)
+        ws.ensure_dirs()
         
         click.echo(f"Created directory: {caracal_dir}")
         
         # Create default config.yaml if it doesn't exist
-        config_path = caracal_dir / "config.yaml"
+        config_path = ws.config_path
         if not config_path.exists():
-            default_config_content = """# Caracal Core Configuration
+            default_config_content = f"""# Caracal Core Configuration
 
 storage:
-  agent_registry: ~/.caracal/agents.json
-  policy_store: ~/.caracal/policies.json
-  ledger: ~/.caracal/ledger.jsonl
-  pricebook: ~/.caracal/pricebook.csv
-  backup_dir: ~/.caracal/backups
+  agent_registry: {ws.agents_path}
+  policy_store: {ws.policies_path}
+  ledger: {ws.ledger_path}
+  pricebook: {ws.pricebook_path}
+  backup_dir: {ws.backups_dir}
   backup_count: 3
 
 defaults:
@@ -395,7 +407,7 @@ defaults:
 
 logging:
   level: INFO
-  file: ~/.caracal/caracal.log
+  file: {ws.log_path}
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 database:
@@ -408,7 +420,7 @@ database:
   password: ""
   # For SQLite:
   # type: sqlite
-  # file_path: ~/.caracal/caracal.db
+  # file_path: {ws.db_path}
 
 performance:
   policy_eval_timeout_ms: 100
@@ -422,26 +434,28 @@ performance:
             click.echo(f"Configuration already exists: {config_path}")
         
         # Create empty agents.json if it doesn't exist
-        agents_path = caracal_dir / "agents.json"
+        agents_path = ws.agents_path
         if not agents_path.exists():
             agents_path.write_text("[]")
             click.echo(f"Created agent registry: {agents_path}")
         
         # Create empty policies.json if it doesn't exist
-        policies_path = caracal_dir / "policies.json"
+        policies_path = ws.policies_path
         if not policies_path.exists():
             policies_path.write_text("[]")
             click.echo(f"Created policy store: {policies_path}")
         
         # Create empty ledger.jsonl if it doesn't exist
-        ledger_path = caracal_dir / "ledger.jsonl"
+        ledger_path = ws.ledger_path
         if not ledger_path.exists():
             ledger_path.write_text("")
             click.echo(f"Created ledger: {ledger_path}")
         
+        # Register workspace
+        WorkspaceManager.register_workspace(caracal_dir.name, caracal_dir)
         
         click.echo("\n✓ Caracal Core initialized successfully!")
-        click.echo(f"\nConfiguration directory: {caracal_dir}")
+        click.echo(f"\nWorkspace directory: {caracal_dir}")
         click.echo("\nNext steps:")
         click.echo("  1. Register an agent: caracal agent register --name my-agent --owner user@example.com")
         click.echo("  2. Create a policy: caracal policy create --agent-id <uuid> --limit 100.00")

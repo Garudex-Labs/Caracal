@@ -163,10 +163,13 @@ class FlowState:
 class StatePersistence:
     """Handles loading and saving state to disk."""
     
-    DEFAULT_PATH = Path.home() / ".caracal" / "flow_state.json"
-    
-    def __init__(self, path: Optional[Path] = None):
-        self.path = path or self.DEFAULT_PATH
+    def __init__(self, path: Optional[Path] = None, workspace: "Optional[WorkspaceManager]" = None):
+        if path:
+            self.path = path
+        else:
+            from caracal.flow.workspace import get_workspace
+            ws = workspace or get_workspace()
+            self.path = ws.state_path
     
     def load(self) -> FlowState:
         """Load state from disk, or return defaults."""

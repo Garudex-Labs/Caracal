@@ -164,8 +164,9 @@ class DatabaseConnectionManager:
                         import os
                         from pathlib import Path
                         
-                        # Try to put it in .caracal dir if possible
-                        base_dir = Path(os.environ.get("HOME", ".")) / ".caracal"
+                        # Try to put it in workspace dir if possible
+                        from caracal.flow.workspace import get_workspace
+                        base_dir = get_workspace().root
                         base_dir.mkdir(exist_ok=True)
                         self.config.file_path = str(base_dir / "caracal.db")
                     

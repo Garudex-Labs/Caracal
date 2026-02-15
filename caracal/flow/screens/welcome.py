@@ -31,55 +31,28 @@ def show_welcome(
 
 def wait_for_action(console: Optional[Console] = None) -> str:
     """
-    Display welcome screen and wait for user action using a menu.
+    Display welcome screen and proceed to workspace setup.
     
     Returns:
-        Action key: 'continue', 'new', or 'quit'
+        Action key: always returns 'new' to start workspace setup
     """
-    from caracal.flow.components.menu import Menu, MenuItem
-    
     console = console or Console()
-    
-    # Define menu items
-    items = [
-        MenuItem(
-            key="continue",
-            label="Continue with Existing Configuration",
-            description="Skip onboarding and launch with existing settings",
-            icon=Icons.ARROW_RIGHT
-        ),
-        MenuItem(
-            key="new",
-            label="Onboarding Wizard",
-            description="Set up principals, policies, and first mandate",
-            icon=Icons.AUTHORITY
-        ),
-        MenuItem(
-            key="quit",
-            label="Quit",
-            description="",
-            icon="",
-        ),
-    ]
     
     # Build the banner header with version inline
     banner = BANNER_COMPACT if (console.width < 75) else BANNER
     
-    menu = Menu(
-        title="",
-        items=items,
-        show_hints=True,
-    )
+    console.clear()
+    console.print(f"[{Colors.PRIMARY}]{banner}[/]", end="")
+    console.print(f"  [{Colors.DIM}]v{__version__}[/]")
+    console.print()
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Starting Caracal Flow...[/]")
+    console.print()
     
-    # Show banner + menu together with no extra gap
-    while True:
-        console.clear()
-        console.print(f"[{Colors.PRIMARY}]{banner}[/]", end="")
-        console.print(f"  [{Colors.DIM}]v{__version__}[/]")
-        
-        result = menu.run()
-        
-        if result:
-            return result.key
-            
+    # Wait for user to press enter
+    console.print(f"  [{Colors.HINT}]Press Enter to continue or Ctrl+C to quit...[/]")
+    try:
+        input()
+    except (KeyboardInterrupt, EOFError):
         return "quit"
+    
+    return "new"
