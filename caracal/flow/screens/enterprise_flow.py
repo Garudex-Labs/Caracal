@@ -237,9 +237,19 @@ class EnterpriseFlow:
             Prompt.ask("Press Enter to continue", default="")
             return
         
+        # Prompt for license password (optional)
+        license_password = Prompt.ask(
+            f"[{Colors.PRIMARY}]Enter license password (leave blank if none)[/]",
+            default="",
+            password=True,
+        )
+        
         # Validate license
         self.console.print(f"\n[{Colors.DIM}]Validating license...[/]")
-        result = self.validator.validate_license(license_token)
+        result = self.validator.validate_license(
+            license_token,
+            password=license_password or None,
+        )
         
         self.console.print()
         
