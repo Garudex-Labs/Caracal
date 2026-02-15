@@ -11,7 +11,7 @@ Endpoints:
 - GET /enterprise/features: List available enterprise features
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from caracal.enterprise import EnterpriseLicenseValidator
 
@@ -86,7 +86,7 @@ def get_enterprise_status() -> dict[str, Any]:
     }
 
 
-def connect_enterprise(license_token: str) -> dict[str, Any]:
+def connect_enterprise(license_token: str, password: Optional[str] = None) -> dict[str, Any]:
     """
     Attempt to connect with enterprise license.
     
@@ -96,6 +96,7 @@ def connect_enterprise(license_token: str) -> dict[str, Any]:
     
     Args:
         license_token: Enterprise license token
+        password: Optional password for password-protected licenses
     
     Returns:
         Dictionary with connection status
@@ -114,7 +115,7 @@ def connect_enterprise(license_token: str) -> dict[str, Any]:
         False
     """
     validator = EnterpriseLicenseValidator()
-    result = validator.validate_license(license_token)
+    result = validator.validate_license(license_token, password=password)
     
     return {
         "connected": result.valid,
