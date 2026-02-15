@@ -399,7 +399,8 @@ class CaracalConfig:
 
 def get_default_config_path() -> str:
     """Get the default configuration file path."""
-    return os.path.expanduser("~/.caracal/config.yaml")
+    from caracal.flow.workspace import get_workspace
+    return str(get_workspace().config_path)
 
 
 def get_default_config() -> CaracalConfig:
@@ -409,13 +410,15 @@ def get_default_config() -> CaracalConfig:
     Returns:
         CaracalConfig: Default configuration object
     """
-    home_dir = os.path.expanduser("~/.caracal")
+    from caracal.flow.workspace import get_workspace
+    ws = get_workspace()
+    home_dir = str(ws.root)
     
     storage = StorageConfig(
-        agent_registry=os.path.join(home_dir, "agents.json"),
-        policy_store=os.path.join(home_dir, "policies.json"),
-        ledger=os.path.join(home_dir, "ledger.jsonl"),
-        backup_dir=os.path.join(home_dir, "backups"),
+        agent_registry=str(ws.agents_path),
+        policy_store=str(ws.policies_path),
+        ledger=str(ws.ledger_path),
+        backup_dir=str(ws.backups_dir),
         backup_count=3,
     )
     
@@ -425,7 +428,7 @@ def get_default_config() -> CaracalConfig:
     
     logging = LoggingConfig(
         level="INFO",
-        file=os.path.join(home_dir, "caracal.log"),
+        file=str(ws.log_path),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     

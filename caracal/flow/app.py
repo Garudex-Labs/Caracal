@@ -48,15 +48,35 @@ class FlowApp:
                 self._goodbye()
                 return
             
-            if action == "new":
-                # User explicitly chose onboarding — run it directly
-                run_onboarding(self.console, self.state)
-            elif action == "continue":
-                # Skip onboarding, go straight to main menu
-                pass
-            elif not self.state.onboarding.completed:
-                # First-time user who hasn't completed onboarding
-                run_onboarding(self.console, self.state)
+            # Always run onboarding (starts with workspace selection)
+            onboarding_result = run_onboarding(self.console, self.state)
+            
+            # CRITICAL: Ensure workspace was properly configured before proceeding
+            # Without a workspace, there's nowhere to store configuration and data
+            if not onboarding_result.get("workspace_configured", False):
+                self.console.print()
+                self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Setup incomplete. Workspace configuration is required.[/]")
+                self.console.print(f"  [{Colors.INFO}]{Icons.INFO} Please run 'caracal-flow' again to set up your workspace.[/]")
+                self.console.print()
+                self._goodbye()
+                return
+            
+            # Verify workspace is accessible
+            from caracal.flow.workspace import get_workspace
+            try:
+                workspace = get_workspace()
+                if not workspace.root.exists():
+                    self.console.print()
+                    self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Workspace directory not found: {workspace.root}[/]")
+                    self.console.print()
+                    self._goodbye()
+                    return
+            except Exception as e:
+                self.console.print()
+                self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to access workspace: {e}[/]")
+                self.console.print()
+                self._goodbye()
+                return
             
             # Main loop
             self._run_main_loop()
@@ -513,7 +533,8 @@ ledger capabilities.[/]
             return
             
         # Create backups directory
-        backup_dir = Path.home() / ".caracal" / "backups"
+        from caracal.flow.workspace import get_workspace
+        backup_dir = get_workspace().backups_dir
         backup_dir.mkdir(parents=True, exist_ok=True)
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -543,7 +564,8 @@ ledger capabilities.[/]
              input()
              return
 
-        backup_dir = Path.home() / ".caracal" / "backups"
+        from caracal.flow.workspace import get_workspace
+        backup_dir = get_workspace().backups_dir
         if not backup_dir.exists():
              self.console.print(f"[{Colors.WARNING}]No backups found directory created.[/]")
              input()

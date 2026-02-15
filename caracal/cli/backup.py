@@ -43,7 +43,7 @@ def get_data_files(config) -> dict:
         "agents.json": Path(config.storage.agent_registry).expanduser(),
         "policies.json": Path(config.storage.policy_store).expanduser(),
         "ledger.jsonl": Path(config.storage.ledger).expanduser(),
-        "config.yaml": Path("~/.caracal/config.yaml").expanduser(),
+        "config.yaml": Path(config.storage.agent_registry).expanduser().parent / "config.yaml",
     }
 
 
@@ -200,16 +200,17 @@ def backup_restore(ctx, backup_file: Path, force: bool, no_safety_backup: bool):
                 click.echo(f"✓ Safety backup created: {safety_path}")
         
         # Extract backup
-        data_files = get_data_files(config)
-        caracal_dir = Path("~/.caracal").expanduser()
+        from caracal.flow.workspace import get_workspace
+        caracal_dir = get_workspace().root
         
         with tarfile.open(backup_file, "r:gz") as tar:
             for member in tar.getmembers():
                 if member.name in data_files:
                     target_path = data_files[member.name]
                     # Extract to a temp file first
-                    tar.extract(member, path=caracal_dir.parent / ".caracal_restore_tmp")
-                    tmp_path = caracal_dir.parent / ".caracal_restore_tmp" / member.name
+                    tmp_base = caracal_dir.parent / ".caracal_restore_tmp"
+                    tar.extract(member, path=tmp_base)
+                    tmp_path = tmp_base / member.name
                     # Move to final location
                     shutil.move(str(tmp_path), str(target_path))
                     click.echo(f"  Restored: {member.name}")
