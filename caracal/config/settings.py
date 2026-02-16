@@ -789,7 +789,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         if authority_enforcement.per_principal_rollout:
             logger.info("Per-principal authority enforcement rollout enabled")
         if authority_enforcement.compatibility_mode_enabled:
-            logger.info("Budget-to-authority compatibility mode enabled")
+            logger.info("Legacy compatibility mode enabled")
     
     return CaracalConfig(
         storage=storage,

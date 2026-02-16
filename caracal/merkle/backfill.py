@@ -342,9 +342,7 @@ class LedgerBackfillManager:
             f"{event.agent_id}|"
             f"{event.timestamp.isoformat()}|"
             f"{event.resource_type}|"
-            f"{event.quantity}|"
-            f"{event.cost}|"
-            f"{event.currency}"
+            f"{event.quantity}"
         )
         
         # Compute SHA-256 hash

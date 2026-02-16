@@ -62,7 +62,7 @@ MAIN_MENU_ITEMS = [
     MenuItem(
         key="settings",
         label="Settings & Config",
-        description="Configure Caracal and manage database",
+        description="Configure Caracal, manage infrastructure, and check service health",
         icon=Icons.SETTINGS,
     ),
     MenuItem(
@@ -107,15 +107,37 @@ def show_main_menu(
 
 
 def _show_status_header(console: Console) -> None:
-    """Show system status in header."""
-    # This would ideally fetch real status from the system
-    # For now, show a placeholder
+    """Show system status in header with real service checks."""
+    import socket
     from caracal.flow.theme import Icons
-    
-    status_items = [
-        (Icons.SUCCESS, "System Ready", Colors.SUCCESS),
-    ]
-    
+
+    status_items = []
+
+    try:
+        from caracal.config import load_config
+        config = load_config()
+
+        # Database status
+        if config.database.type == "sqlite":
+            status_items.append((Icons.SUCCESS, "DB: SQLite", Colors.SUCCESS))
+        else:
+            try:
+                sock = socket.create_connection(
+                    (config.database.host, config.database.port), timeout=1
+                )
+                sock.close()
+                status_items.append((Icons.SUCCESS, "DB: PostgreSQL", Colors.SUCCESS))
+            except Exception:
+                status_items.append((Icons.ERROR, "DB: Unreachable", Colors.ERROR))
+
+        # Compatibility mode indicator
+        mode = getattr(config.compatibility, "mode", "v0.3")
+        if mode == "v0.2":
+            status_items.append((Icons.WARNING, "Mode: v0.2 compat", Colors.WARNING))
+
+    except Exception:
+        status_items.append((Icons.SUCCESS, "System Ready", Colors.SUCCESS))
+
     console.print()
     for icon, text, color in status_items:
         console.print(f"  [{color}]{icon} {text}[/]")
@@ -201,17 +223,15 @@ def get_submenu_items(category: str) -> list[MenuItem]:
         ],
         "settings": [
             MenuItem(key="view", label="View Configuration", 
-                    description="Display current settings", icon=""),
+                    description="Display current settings and enabled services", icon=""),
             MenuItem(key="edit", label="Edit Configuration", 
                     description="Open config in system editor", icon=""),
             MenuItem(key="infra", label="Infrastructure Setup", 
-                    description="Manage Docker services (Postgres, Kafka)", icon=""),
+                    description="Manage Docker services (start/stop containers)", icon=""),
             MenuItem(key="db-status", label="Database Status", 
                     description="Check database connection", icon=""),
-            MenuItem(key="kafka-status", label="Kafka Status", 
-                    description="Check Kafka and Zookeeper connection", icon=""),
-            MenuItem(key="services-status", label="Services Status", 
-                    description="Check other services (Redis, Schema Registry)", icon=""),
+            MenuItem(key="service-health", label="Service Health", 
+                    description="Check status of all enabled services", icon=""),
             MenuItem(key="backup", label="Backup Data", 
                     description="Create a backup archive", icon=""),
             MenuItem(key="restore", label="Restore Data", 

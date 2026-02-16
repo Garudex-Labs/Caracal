@@ -3,10 +3,9 @@ Core components for Caracal Core.
 
 This module contains the core primitives:
 - Agent identity management
-- Policy store and evaluation
+- Policy evaluation
 - Ledger writer and query
 - Metering collector
-- Pricebook
 - Circuit breakers for resilience
 """
 
