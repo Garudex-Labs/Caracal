@@ -2,7 +2,7 @@
 CLI entry point for Caracal Core.
 
 Provides command-line interface for administrative operations including
-agent management, policy management, ledger queries, and pricebook management.
+agent management, policy management, ledger queries, and mandate management.
 """
 
 import logging
@@ -107,7 +107,6 @@ def policy():
 
 
 # Import and register authority policy commands (v0.5)
-# Replacing old budget policy commands
 from caracal.cli.authority_policy import create, list_policies
 policy.add_command(create)
 policy.add_command(list_policies, name='list')
@@ -136,9 +135,6 @@ ledger.add_command(list_partitions, name='list-partitions')
 ledger.add_command(create_partitions, name='create-partitions')
 ledger.add_command(archive_partitions, name='archive-partitions')
 ledger.add_command(refresh_views, name='refresh-views')
-
-
-# Pricebook commands removed in v0.5
 
 
 @cli.group()
@@ -396,7 +392,6 @@ storage:
   agent_registry: {ws.agents_path}
   policy_store: {ws.policies_path}
   ledger: {ws.ledger_path}
-  pricebook: {ws.pricebook_path}
   backup_dir: {ws.backups_dir}
   backup_count: 3
 

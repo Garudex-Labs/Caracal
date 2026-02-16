@@ -58,11 +58,11 @@ def get_agent_registry_with_delegation(config) -> tuple:
     help='Child agent ID (subject)',
 )
 @click.option(
-    '--spending-limit',
+    '--authority-scope',
     '-l',
     required=True,
     type=float,
-    help='Maximum spending allowed',
+    help='Maximum authority scope allowed',
 )
 @click.option(
     '--currency',
@@ -83,20 +83,20 @@ def get_agent_registry_with_delegation(config) -> tuple:
     help='Allowed operations (can be specified multiple times, default: api_call, mcp_tool)',
 )
 @click.pass_context
-def generate(ctx, parent_id: str, child_id: str, spending_limit: float, 
+def generate(ctx, parent_id: str, child_id: str, authority_scope: float, 
              currency: str, expiration: int, operations: tuple):
     """
     Generate a delegation token for a child agent.
     
     Creates a JWT token signed by the parent agent that authorizes the child
-    agent to spend up to the specified limit.
+    agent to operate within the specified authority scope.
     
     Examples:
     
         caracal delegation generate \\
             --parent-id 550e8400-e29b-41d4-a716-446655440000 \\
             --child-id 660e8400-e29b-41d4-a716-446655440001 \\
-            --spending-limit 100.00
+            --authority-scope 100.00
         
         caracal delegation generate -p parent-uuid -c child-uuid \\
             -l 50.00 --currency EUR --expiration 3600 \\
@@ -116,7 +116,7 @@ def generate(ctx, parent_id: str, child_id: str, spending_limit: float,
         token = registry.generate_delegation_token(
             parent_agent_id=parent_id,
             child_agent_id=child_id,
-            spending_limit=spending_limit,
+            spending_limit=authority_scope,
             currency=currency,
             expiration_seconds=expiration,
             allowed_operations=allowed_operations
@@ -131,7 +131,7 @@ def generate(ctx, parent_id: str, child_id: str, spending_limit: float,
         click.echo()
         click.echo(f"Parent Agent:    {parent_id}")
         click.echo(f"Child Agent:     {child_id}")
-        click.echo(f"Spending Limit:  {spending_limit} {currency}")
+        click.echo(f"Authority Scope: {authority_scope} {currency}")
         click.echo(f"Expires In:      {expiration} seconds")
         click.echo()
         click.echo("Token:")
@@ -372,14 +372,14 @@ def validate(ctx, token: str):
         click.echo(f"Subject (Child):     {claims.subject}")
         click.echo(f"Audience:            {claims.audience}")
         click.echo(f"Token ID:            {claims.token_id}")
-        click.echo(f"Spending Limit:      {claims.spending_limit} {claims.currency}")
+        click.echo(f"Authority Scope:     {claims.spending_limit} {claims.currency}")
         click.echo(f"Issued At:           {claims.issued_at}")
         click.echo(f"Expires At:          {claims.expiration}")
         click.echo(f"Allowed Operations:  {', '.join(claims.allowed_operations)}")
         click.echo(f"Max Delegation Depth: {claims.max_delegation_depth}")
         
         if claims.budget_category:
-            click.echo(f"Budget Category:     {claims.budget_category}")
+            click.echo(f"Authority Category:  {claims.budget_category}")
         
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)

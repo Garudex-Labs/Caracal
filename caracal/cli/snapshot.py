@@ -69,7 +69,7 @@ def create_snapshot(ctx):
     Create a ledger snapshot.
     
     Creates a point-in-time snapshot of the ledger including:
-    - Aggregated spending per agent
+    - Aggregated usage per agent
     - Current Merkle root
     - Total event count
     
@@ -222,7 +222,6 @@ def restore_snapshot(ctx, snapshot_id: str, dry_run: bool):
                     snapshot_data = snapshot_manager.load_snapshot(snapshot_uuid)
                     click.echo(f"  Snapshot timestamp: {snapshot_data.snapshot_timestamp}")
                     click.echo(f"  Total events: {snapshot_data.total_events}")
-                    click.echo(f"  Agents: {len(snapshot_data.agent_spending)}")
                     click.echo(f"  Merkle root: {snapshot_data.merkle_root[:16]}...")
                     click.echo("\nNo changes made (dry run)")
                     return

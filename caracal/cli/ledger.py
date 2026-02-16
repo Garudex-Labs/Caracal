@@ -209,14 +209,12 @@ def query(
             max_agent_id_len = max(len(event.agent_id) for event in events)
             max_resource_len = max(len(event.resource_type) for event in events)
             max_quantity_len = max(len(event.quantity) for event in events)
-            max_cost_len = max(len(f"{event.cost} {event.currency}") for event in events)
             
             # Ensure minimum widths for headers
             event_id_width = max(max_event_id_len, len("Event ID"))
             agent_id_width = max(max_agent_id_len, len("Agent ID"))
             resource_width = max(max_resource_len, len("Resource Type"))
             quantity_width = max(max_quantity_len, len("Quantity"))
-            cost_width = max(max_cost_len, len("Cost"))
             
             # Print header
             header = (
@@ -224,7 +222,6 @@ def query(
                 f"{'Agent ID':<{agent_id_width}}  "
                 f"{'Resource Type':<{resource_width}}  "
                 f"{'Quantity':<{quantity_width}}  "
-                f"{'Cost':<{cost_width}}  "
                 f"Timestamp"
             )
             click.echo(header)
@@ -234,14 +231,12 @@ def query(
             for event in events:
                 # Format timestamp to be more readable
                 timestamp = event.timestamp.replace('T', ' ').replace('Z', '')
-                cost_str = f"{event.cost} {event.currency}"
                 
                 click.echo(
                     f"{str(event.event_id):<{event_id_width}}  "
                     f"{event.agent_id:<{agent_id_width}}  "
                     f"{event.resource_type:<{resource_width}}  "
                     f"{event.quantity:<{quantity_width}}  "
-                    f"{cost_str:<{cost_width}}  "
                     f"{timestamp}"
                 )
     
@@ -278,12 +273,12 @@ def query(
 @click.option(
     '--aggregate-children',
     is_flag=True,
-    help='Include spending from child agents in the total (hierarchical aggregation)',
+    help='Include usage from child agents in the total (hierarchical aggregation)',
 )
 @click.option(
     '--breakdown',
     is_flag=True,
-    help='Show hierarchical breakdown of spending by agent and children',
+    help='Show hierarchical breakdown of usage by agent and children',
 )
 @click.option(
     '--format',
@@ -303,12 +298,12 @@ def summary(
     format: str,
 ):
     """
-    Summarize spending with aggregation by agent.
+    Summarize usage with aggregation by agent.
     
-    Calculates total spending for each agent in the specified time window.
+    Calculates total usage for each agent in the specified time window.
     If agent-id is specified, shows detailed breakdown for that agent only.
     
-    With --aggregate-children, includes spending from all child agents in the total.
+    With --aggregate-children, includes usage from all child agents in the total.
     With --breakdown, shows hierarchical view with indentation for parent-child relationships.
     
     Examples:
@@ -319,7 +314,7 @@ def summary(
         # Summary for a specific agent
         caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000
         
-        # Summary with child agent spending included
+        # Summary with child agent usage included
         caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
             --aggregate-children --start 2024-01-01 --end 2024-01-31
         
@@ -382,7 +377,7 @@ def summary(
             
             # Handle hierarchical breakdown view
             if breakdown:
-                breakdown_data = ledger_query.get_spending_breakdown(
+                breakdown_data = ledger_query.get_usage_breakdown(
                     agent_id=agent_id,
                     start_time=start_time,
                     end_time=end_time,
@@ -404,7 +399,7 @@ def summary(
                     click.echo(json.dumps(output, indent=2))
                 else:
                     # Table output with hierarchical indentation
-                    click.echo(f"Hierarchical Spending Breakdown")
+                    click.echo(f"Hierarchical Usage Breakdown")
                     click.echo("=" * 70)
                     click.echo()
                     click.echo(f"Time Period: {start_time} to {end_time}")
@@ -421,7 +416,7 @@ def summary(
                         else:
                             click.echo(f"{indent_str}└─ {agent_name} ({data['agent_id']})")
                         
-                        click.echo(f"{indent_str}   Own Spending: {data['spending']} USD")
+                        click.echo(f"{indent_str}   Own Usage: {data['usage']} USD")
                         
                         # Print children recursively
                         if data.get("children"):
@@ -439,7 +434,7 @@ def summary(
             
             # Handle aggregate children (sum with children)
             if aggregate_children:
-                spending_with_children = ledger_query.sum_spending_with_children(
+                usage_with_children = ledger_query.sum_usage_with_children(
                     agent_id=agent_id,
                     start_time=start_time,
                     end_time=end_time,
@@ -447,9 +442,9 @@ def summary(
                 )
                 
                 # Calculate totals
-                own_spending = spending_with_children.get(agent_id, Decimal('0'))
-                total_spending = sum(spending_with_children.values())
-                children_spending = total_spending - own_spending
+                own_usage = usage_with_children.get(agent_id, Decimal('0'))
+                total_usage = sum(usage_with_children.values())
+                children_usage = total_usage - own_usage
                 
                 if format.lower() == 'json':
                     # JSON output
@@ -457,53 +452,53 @@ def summary(
                         "agent_id": agent_id,
                         "start_time": start_time.isoformat() if start_time else None,
                         "end_time": end_time.isoformat() if end_time else None,
-                        "own_spending": str(own_spending),
-                        "children_spending": str(children_spending),
-                        "total_spending": str(total_spending),
-                        "currency": "USD",
+                        "own_usage": str(own_usage),
+                        "children_usage": str(children_usage),
+                        "total_usage": str(total_usage),
+                        "unit": "requests",
                         "breakdown_by_agent": {
-                            aid: str(cost)
-                            for aid, cost in spending_with_children.items()
+                            aid: str(amount)
+                            for aid, amount in usage_with_children.items()
                         }
                     }
                     click.echo(json.dumps(output, indent=2))
                 else:
                     # Table output
-                    click.echo(f"Spending Summary for Agent: {agent_id} (with children)")
+                    click.echo(f"Usage Summary for Agent: {agent_id} (with children)")
                     click.echo("=" * 70)
                     click.echo()
                     click.echo(f"Time Period: {start_time} to {end_time}")
-                    click.echo(f"Own Spending: {own_spending} USD")
-                    click.echo(f"Children Spending: {children_spending} USD")
-                    click.echo(f"Total Spending: {total_spending} USD")
+                    click.echo(f"Own Usage: {own_usage}")
+                    click.echo(f"Children Usage: {children_usage}")
+                    click.echo(f"Total Usage: {total_usage}")
                     click.echo()
                     
-                    if len(spending_with_children) > 1:
+                    if len(usage_with_children) > 1:
                         click.echo("Breakdown by Agent:")
                         click.echo("-" * 70)
                         
                         # Calculate column width
-                        max_agent_id_len = max(len(aid) for aid in spending_with_children.keys())
+                        max_agent_id_len = max(len(aid) for aid in usage_with_children.keys())
                         agent_id_width = max(max_agent_id_len, len("Agent ID"))
                         
                         # Print header
-                        click.echo(f"{'Agent ID':<{agent_id_width}}  Spending (USD)")
+                        click.echo(f"{'Agent ID':<{agent_id_width}}  Usage")
                         click.echo("-" * 70)
                         
-                        # Print breakdown sorted by spending (descending)
-                        for aid, spending in sorted(
-                            spending_with_children.items(),
+                        # Print breakdown sorted by usage (descending)
+                        for aid, usage in sorted(
+                            usage_with_children.items(),
                             key=lambda x: x[1],
                             reverse=True
                         ):
                             marker = " (self)" if aid == agent_id else ""
-                            click.echo(f"{aid:<{agent_id_width}}  {spending}{marker}")
+                            click.echo(f"{aid:<{agent_id_width}}  {usage}{marker}")
                 
                 return
             
             # Standard single agent summary (no hierarchical features)
-            # Calculate total spending
-            total_spending = ledger_query.sum_spending(
+            # Calculate total usage
+            total_usage = ledger_query.sum_usage(
                 agent_id=agent_id,
                 start_time=start_time,
                 end_time=end_time,
@@ -520,11 +515,11 @@ def summary(
             resource_breakdown = {}
             for event in events:
                 try:
-                    cost = Decimal(event.cost)
+                    qty = Decimal(event.quantity)
                     if event.resource_type in resource_breakdown:
-                        resource_breakdown[event.resource_type] += cost
+                        resource_breakdown[event.resource_type] += qty
                     else:
-                        resource_breakdown[event.resource_type] = cost
+                        resource_breakdown[event.resource_type] = qty
                 except Exception:
                     continue
             
@@ -534,21 +529,21 @@ def summary(
                     "agent_id": agent_id,
                     "start_time": start_time.isoformat() if start_time else None,
                     "end_time": end_time.isoformat() if end_time else None,
-                    "total_spending": str(total_spending),
-                    "currency": "USD",
+                    "total_usage": str(total_usage),
+                    "unit": "requests",
                     "breakdown_by_resource": {
-                        resource: str(cost)
-                        for resource, cost in resource_breakdown.items()
+                        resource: str(qty)
+                        for resource, qty in resource_breakdown.items()
                     }
                 }
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
-                click.echo(f"Spending Summary for Agent: {agent_id}")
+                click.echo(f"Usage Summary for Agent: {agent_id}")
                 click.echo("=" * 70)
                 click.echo()
                 click.echo(f"Time Period: {start_time} to {end_time}")
-                click.echo(f"Total Spending: {total_spending} USD")
+                click.echo(f"Total Usage: {total_usage}")
                 click.echo()
                 
                 if resource_breakdown:
@@ -560,10 +555,10 @@ def summary(
                     resource_width = max(max_resource_len, len("Resource Type"))
                     
                     # Print header
-                    click.echo(f"{'Resource Type':<{resource_width}}  Cost (USD)")
+                    click.echo(f"{'Resource Type':<{resource_width}}  Quantity")
                     click.echo("-" * 70)
                     
-                    # Print breakdown sorted by cost (descending)
+                    # Print breakdown sorted by quantity (descending)
                     for resource, cost in sorted(
                         resource_breakdown.items(),
                         key=lambda x: x[1],
@@ -571,7 +566,7 @@ def summary(
                     ):
                         click.echo(f"{resource:<{resource_width}}  {cost}")
                 else:
-                    click.echo("No spending recorded in this time period.")
+                    click.echo("No usage recorded in this time period.")
         
         else:
             # Multi-agent aggregation
@@ -589,7 +584,7 @@ def summary(
             )
             
             if not aggregation:
-                click.echo("No spending recorded in the specified time period.")
+                click.echo("No usage recorded in the specified time period.")
                 return
             
             if format.lower() == 'json':
@@ -597,25 +592,25 @@ def summary(
                 output = {
                     "start_time": start_time.isoformat() if start_time else None,
                     "end_time": end_time.isoformat() if end_time else None,
-                    "currency": "USD",
+                    "unit": "requests",
                     "agents": {
-                        agent_id: str(spending)
-                        for agent_id, spending in aggregation.items()
+                        agent_id: str(usage)
+                        for agent_id, usage in aggregation.items()
                     }
                 }
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
-                click.echo("Spending Summary by Agent")
+                click.echo("Usage Summary by Agent")
                 click.echo("=" * 70)
                 click.echo()
                 click.echo(f"Time Period: {start_time} to {end_time}")
                 click.echo(f"Total Agents: {len(aggregation)}")
                 click.echo()
                 
-                # Calculate total spending across all agents
-                total_spending = sum(aggregation.values())
-                click.echo(f"Total Spending: {total_spending} USD")
+                # Calculate total usage across all agents
+                total_usage = sum(aggregation.values())
+                click.echo(f"Total Usage: {total_usage}")
                 click.echo()
                 
                 # Calculate column widths
@@ -623,16 +618,16 @@ def summary(
                 agent_id_width = max(max_agent_id_len, len("Agent ID"))
                 
                 # Print header
-                click.echo(f"{'Agent ID':<{agent_id_width}}  Spending (USD)")
+                click.echo(f"{'Agent ID':<{agent_id_width}}  Usage")
                 click.echo("-" * 70)
                 
-                # Print agents sorted by spending (descending)
-                for agent_id, spending in sorted(
+                # Print agents sorted by usage (descending)
+                for agent_id, usage in sorted(
                     aggregation.items(),
                     key=lambda x: x[1],
                     reverse=True
                 ):
-                    click.echo(f"{agent_id:<{agent_id_width}}  {spending}")
+                    click.echo(f"{agent_id:<{agent_id_width}}  {usage}")
     
     except LedgerReadError as e:
         click.echo(f"Error: {e}", err=True)
@@ -1041,8 +1036,8 @@ def refresh_views(ctx, concurrent: bool):
     """
     Refresh materialized views for ledger query optimization.
     
-    Refreshes the spending_by_agent_mv and spending_by_time_window_mv
-    materialized views. These views provide fast lookups for spending
+    Refreshes the usage_by_agent_mv and usage_by_time_window_mv
+    materialized views. These views provide fast lookups for usage
     aggregations and are used by the policy evaluator.
     
     By default, uses CONCURRENTLY to avoid blocking reads during refresh.
@@ -1069,12 +1064,12 @@ def refresh_views(ctx, concurrent: bool):
         manager.refresh_all(concurrent=concurrent)
         
         # Get refresh times
-        spending_by_agent_time = manager.get_view_refresh_time('spending_by_agent_mv')
-        spending_by_time_window_time = manager.get_view_refresh_time('spending_by_time_window_mv')
+        usage_by_agent_time = manager.get_view_refresh_time('usage_by_agent_mv')
+        usage_by_time_window_time = manager.get_view_refresh_time('usage_by_time_window_mv')
         
         click.echo("\nSuccessfully refreshed all materialized views:")
-        click.echo(f"  - spending_by_agent_mv (refreshed at: {spending_by_agent_time})")
-        click.echo(f"  - spending_by_time_window_mv (refreshed at: {spending_by_time_window_time})")
+        click.echo(f"  - usage_by_agent_mv (refreshed at: {usage_by_agent_time})")
+        click.echo(f"  - usage_by_time_window_mv (refreshed at: {usage_by_time_window_time})")
         
         session.close()
     
