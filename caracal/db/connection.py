@@ -1,17 +1,26 @@
 """
 Database connection management for Caracal Core.
 
-This module provides connection pooling, health checks, and retry logic
-for PostgreSQL database operations.
+PostgreSQL is the **only** supported database backend.  There is no SQLite
+fallback — if PostgreSQL is not reachable the application must fail loudly
+so the operator can fix the infrastructure.
+
+Configuration is resolved in this priority order:
+  1. Explicit ``DatabaseConfig`` values passed at construction time.
+  2. Environment variables (``CARACAL_DB_HOST``, ``CARACAL_DB_PORT``, etc.).
+  3. Workspace ``config.yaml`` (via ``get_db_manager()``).
 
 Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 """
 
 import logging
+import os
+import re
 from contextlib import contextmanager
 from typing import Optional, Generator
+from urllib.parse import quote_plus
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event as sa_event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
@@ -19,151 +28,189 @@ from sqlalchemy.pool import QueuePool
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Environment variable names (all optional — override config.yaml values)
+# ---------------------------------------------------------------------------
+_ENV_PREFIX = "CARACAL_DB_"
+_ENV_HOST = f"{_ENV_PREFIX}HOST"          # default: localhost
+_ENV_PORT = f"{_ENV_PREFIX}PORT"          # default: 5432
+_ENV_NAME = f"{_ENV_PREFIX}NAME"          # default: caracal
+_ENV_USER = f"{_ENV_PREFIX}USER"          # default: caracal
+_ENV_PASSWORD = f"{_ENV_PREFIX}PASSWORD"  # default: ""
+_ENV_SCHEMA = f"{_ENV_PREFIX}SCHEMA"      # default: "" (public)
+
+
+def _env(name: str, fallback: str = "") -> str:
+    """Read an environment variable, returning *fallback* when unset/empty.
+
+    Checks ``CARACAL_DB_*`` first, then falls back to the shorter ``DB_*``
+    prefix (used by docker-compose / .env files) for convenience.
+    """
+    value = os.environ.get(name, "")
+    if value:
+        return value
+    # Try the shorter DB_* prefix (e.g. CARACAL_DB_PASSWORD -> DB_PASSWORD)
+    if name.startswith(_ENV_PREFIX):
+        short = "DB_" + name[len(_ENV_PREFIX):]
+        value = os.environ.get(short, "")
+        if value:
+            return value
+    return fallback
+
+
+def _ensure_dotenv_loaded() -> None:
+    """Load the nearest ``.env`` file into ``os.environ`` once.
+
+    Uses ``python-dotenv`` if available.  Values already set in the
+    environment are NOT overwritten (``override=False``).
+    """
+    if getattr(_ensure_dotenv_loaded, "_done", False):
+        return
+    _ensure_dotenv_loaded._done = True  # type: ignore[attr-defined]
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)
+    except ImportError:
+        pass
+
 
 class DatabaseConfig:
-    """Configuration for database connection."""
-    
+    """PostgreSQL-only database configuration.
+
+    Values can be overridden individually via ``CARACAL_DB_*`` environment
+    variables.  Environment variables take precedence over constructor
+    arguments when set.
+    """
+
     def __init__(
         self,
-        type: str = "postgres",
         host: str = "localhost",
         port: int = 5432,
         database: str = "caracal",
         user: str = "caracal",
         password: str = "",
-        file_path: str = "",
+        schema: str = "",
         pool_size: int = 10,
         max_overflow: int = 5,
         pool_timeout: int = 30,
         pool_recycle: int = 3600,
         echo: bool = False,
+        # Legacy kwargs accepted but ignored — prevents breakage in callers
+        # that still pass type= or file_path=.
+        **_ignored,
     ):
-        """
-        Initialize database configuration.
-        
-        Args:
-            type: Database type ("postgres" or "sqlite")
-            host: PostgreSQL host
-            port: PostgreSQL port
-            database: Database name
-            user: Database user
-            password: Database password
-            file_path: Path to SQLite database file
-            pool_size: Number of connections to maintain in pool (default 10)
-            max_overflow: Maximum overflow connections beyond pool_size (default 5)
-            pool_timeout: Timeout in seconds for getting connection from pool (default 30)
-            pool_recycle: Recycle connections after this many seconds (default 3600 = 1 hour)
-            echo: Enable SQL query logging (default False)
-        """
-        self.type = type
-        self.host = host
-        self.port = port
-        self.database = database
-        self.user = user
-        self.password = password
-        self.file_path = file_path
+        _ensure_dotenv_loaded()
+        self.host = _env(_ENV_HOST, host)
+        self.port = int(_env(_ENV_PORT, str(port)))
+        self.database = _env(_ENV_NAME, database)
+        self.user = _env(_ENV_USER, user)
+        self.password = _env(_ENV_PASSWORD, password)
+        self.schema = _env(_ENV_SCHEMA, schema)
         self.pool_size = pool_size
         self.max_overflow = max_overflow
         self.pool_timeout = pool_timeout
         self.pool_recycle = pool_recycle
         self.echo = echo
-    
+
+    # Back-compat: callers that still check config.type
+    @property
+    def type(self) -> str:
+        return "postgresql"
+
     def get_connection_url(self) -> str:
-        """Get database connection URL."""
-        if self.type == "sqlite":
-            path = self.file_path
-            if not path:
-                # Default to memory or relative path? 
-                # Better to error or use a safe default if not provided, but config usually handles defaults.
-                # If path is relative, it will be relative to CWD.
-                # If path starts with handling user expansion, it should be done before here.
-                # However, for sqlite /// is absolute, //// is absolute? 
-                # SQLAlchemy sqlite: sqlite:///foo.db (relative), sqlite:////absolute/path/to/foo.db
-                pass 
-            return f"sqlite:///{self.file_path}"
-        
-        # PostgreSQL (accept both 'postgres' and 'postgresql')
-        from urllib.parse import quote_plus
-        return f"postgresql://{self.user}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.database}"
+        """Build a ``postgresql://`` connection URL."""
+        return (
+            f"postgresql://{self.user}:{quote_plus(self.password)}"
+            f"@{self.host}:{self.port}/{self.database}"
+        )
 
 
 class DatabaseConnectionManager:
     """
-    Manages database connections.
-    
-    Provides connection pooling, health checks, and automatic retry logic.
-    Supports PostgreSQL (with pooling) and SQLite.
-    
+    Manages PostgreSQL connections with pooling and workspace schema isolation.
+
     Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
     """
-    
+
     def __init__(self, config: DatabaseConfig):
-        """
-        Initialize connection manager with configuration.
-        """
         self.config = config
-        # Normalize database type (accept both 'postgres' and 'postgresql')
-        if self.config.type == "postgres":
-            self.config.type = "postgresql"
         self._engine: Optional[Engine] = None
         self._session_factory: Optional[sessionmaker] = None
         self._initialized = False
-        
-        logger.info(
-            f"Initializing database connection manager: type={config.type}"
-        )
-    
+        self._pg_schema: Optional[str] = None  # workspace schema name
+        logger.info("Initializing database connection manager (PostgreSQL)")
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
     def initialize(self) -> None:
-        """
-        Initialize database engine and session factory.
-        
-        Creates SQLAlchemy engine and automatically creates tables if they don't exist.
-        Must be called before using get_session().
+        """Create the SQLAlchemy engine, verify connectivity, and ensure
+        the workspace schema + tables exist.
+
+        Raises ``RuntimeError`` if PostgreSQL is unreachable.
         """
         if self._initialized:
             logger.warning("Database connection manager already initialized")
             return
-        
+
         connection_url = self.config.get_connection_url()
-        
-        if self.config.type == "sqlite":
-            # SQLite specific engine creation
-            from sqlalchemy.pool import StaticPool
-            
-            connect_args = {"check_same_thread": False}
-            
-            self._engine = create_engine(
-                connection_url,
-                connect_args=connect_args,
-                poolclass=StaticPool if self.config.file_path == ":memory:" else None,
-                echo=self.config.echo,
+
+        # Validate optional workspace schema name
+        pg_schema: Optional[str] = None
+        if self.config.schema:
+            schema = self.config.schema
+            if not re.match(r'^[a-z_][a-z0-9_]{0,62}$', schema):
+                raise ValueError(f"Invalid PostgreSQL schema name: {schema!r}")
+            pg_schema = schema
+
+        # Build engine with connection pooling
+        engine_kwargs = dict(
+            poolclass=QueuePool,
+            pool_size=self.config.pool_size,
+            max_overflow=self.config.max_overflow,
+            pool_timeout=self.config.pool_timeout,
+            pool_recycle=self.config.pool_recycle,
+            echo=self.config.echo,
+        )
+
+        self._engine = create_engine(connection_url, **engine_kwargs)
+
+        # If workspace schema is set, transparently route all queries there
+        if pg_schema:
+            @sa_event.listens_for(self._engine, "connect")
+            def _set_search_path(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute(f"SET search_path TO {pg_schema}, public")
+                cursor.close()
+                dbapi_conn.commit()
+
+        # Verify connection — fail hard, no fallback
+        try:
+            with self._engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            logger.info(
+                "Connected to PostgreSQL: %s@%s:%s/%s",
+                self.config.user, self.config.host,
+                self.config.port, self.config.database,
             )
-        else:
-            # PostgreSQL with connection pooling
-            self._engine = create_engine(
-                connection_url,
-                poolclass=QueuePool,
-                pool_size=self.config.pool_size,
-                max_overflow=self.config.max_overflow,
-                pool_timeout=self.config.pool_timeout,
-                pool_recycle=self.config.pool_recycle,
-                echo=self.config.echo,
-            )
-            
-            # Verify connection - fail hard if PostgreSQL is misconfigured
-            # The onboarding wizard is responsible for choosing SQLite as fallback
+        except OperationalError as e:
+            logger.error("PostgreSQL connection failed: %s", e)
+            raise RuntimeError(
+                f"PostgreSQL connection failed: {e}\n"
+                f"Fix your PostgreSQL server or credentials. "
+                f"There is no fallback database."
+            ) from e
+
+        # Ensure workspace schema exists
+        if pg_schema:
             try:
                 with self._engine.connect() as conn:
-                    conn.execute(text("SELECT 1"))
-                logger.info(f"Successfully connected to PostgreSQL database: {self.config.database}")
-            except OperationalError as e:
-                logger.error(f"Failed to connect to PostgreSQL: {e}")
-                logger.error(f"Connection string: postgresql://{self.config.user}:***@{self.config.host}:{self.config.port}/{self.config.database}")
-                logger.error("To use SQLite instead, reconfigure your database settings during onboarding.")
-                raise RuntimeError(
-                    f"PostgreSQL connection failed: {e}\n"
-                    f"Run onboarding again to reconfigure database, or fix PostgreSQL credentials."
-                ) from e
+                    conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {pg_schema}"))
+                    conn.commit()
+                logger.info("PostgreSQL schema ensured: %s", pg_schema)
+            except Exception as e:
+                logger.warning("Could not create schema '%s': %s", pg_schema, e)
         
         # Create session factory
         self._session_factory = sessionmaker(
@@ -171,153 +218,75 @@ class DatabaseConnectionManager:
             autoflush=False,
             bind=self._engine,
         )
-        
-        # Automatically create tables if they don't exist
+
+        # Store schema for later use (drop_schema, clear_database)
+        self._pg_schema = pg_schema
+
+        # Create tables inside the workspace schema using schema_translate_map
+        # This tells SQLAlchemy to map None (default/public) -> workspace schema
+        # for all DDL operations, ensuring tables live in ws_<name> not public.
         try:
             from caracal.db.models import Base
-            Base.metadata.create_all(self._engine)
+            if pg_schema:
+                schema_engine = self._engine.execution_options(
+                    schema_translate_map={None: pg_schema}
+                )
+                Base.metadata.create_all(schema_engine)
+            else:
+                Base.metadata.create_all(self._engine)
             logger.info("Database tables verified/created")
         except Exception as e:
-            logger.warning(f"Could not create tables automatically: {e}")
-        
+            logger.warning("Could not create tables automatically: %s", e)
+
         self._initialized = True
         logger.info("Database connection manager initialized successfully")
-    
+
+    # ------------------------------------------------------------------
+    # Session helpers
+    # ------------------------------------------------------------------
+
     def get_session(self) -> Session:
-        """
-        Get database session from pool.
-        
-        Returns SQLAlchemy session with automatic transaction management.
-        Session must be closed after use (use with context manager).
-        
-        Returns:
-            SQLAlchemy Session
-        
-        Raises:
-            RuntimeError: If connection manager not initialized
-        """
+        """Return a new SQLAlchemy ``Session``.  Must ``close()`` after use."""
         if not self._initialized or self._session_factory is None:
             raise RuntimeError(
                 "Database connection manager not initialized. Call initialize() first."
             )
-        
         return self._session_factory()
-    
+
     @contextmanager
     def session_scope(self):
-        """
-        Provide a transactional scope for database operations.
-        
-        Usage:
-            with db_manager.session_scope() as session:
-                # Perform database operations
-                session.add(obj)
-                # Commit happens automatically on success
-                # Rollback happens automatically on exception
-        
-        Yields:
-            SQLAlchemy Session
-        """
+        """Transactional scope — auto-commits on success, rolls back on error."""
         session = self.get_session()
         try:
             yield session
             session.commit()
         except Exception as e:
             session.rollback()
-            logger.error(f"Database transaction failed, rolling back: {e}")
+            logger.error("Database transaction failed, rolling back: %s", e)
             raise
         finally:
             session.close()
-    
+
+    # ------------------------------------------------------------------
+    # Diagnostics
+    # ------------------------------------------------------------------
+
     def health_check(self) -> bool:
-        """
-        Check database connectivity.
-        
-        Executes a simple query to verify database is reachable.
-        
-        Returns:
-            True if database is reachable, False otherwise
-        """
+        """Return ``True`` if the database is reachable."""
         if not self._initialized or self._engine is None:
-            logger.error("Cannot perform health check: connection manager not initialized")
             return False
-        
         try:
-            with self._engine.connect() as connection:
-                result = connection.execute(text("SELECT 1"))
-                result.fetchone()
-            logger.debug("Database health check passed")
+            with self._engine.connect() as conn:
+                conn.execute(text("SELECT 1")).fetchone()
             return True
-        except OperationalError as e:
-            logger.error(f"Database health check failed: {e}")
-            return False
         except Exception as e:
-            logger.error(f"Unexpected error during health check: {e}")
+            logger.error("Database health check failed: %s", e)
             return False
-    
-    def clear_database(self) -> None:
-        """
-        Clear all data from the database (drop and recreate all tables).
-        
-        WARNING: This is destructive and will delete all data!
-        Use with caution, typically only during setup or testing.
-        """
-        if not self._initialized or self._engine is None:
-            raise RuntimeError(
-                "Database connection manager not initialized. Call initialize() first."
-            )
-        
-        logger.warning("Clearing database - dropping all tables")
-        
-        try:
-            from caracal.db.models import Base
-            # Drop all tables
-            Base.metadata.drop_all(self._engine)
-            logger.info("All tables dropped")
-            
-            # Recreate all tables
-            Base.metadata.create_all(self._engine)
-            logger.info("All tables recreated - database is now empty")
-        except Exception as e:
-            logger.error(f"Failed to clear database: {e}")
-            raise
-    
-    def close(self) -> None:
-        """
-        Close all connections in pool.
-        
-        Disposes of the engine and closes all pooled connections.
-        Should be called during application shutdown.
-        """
-        if self._engine is not None:
-            logger.info("Closing database connection pool")
-            self._engine.dispose()
-            self._engine = None
-            self._session_factory = None
-            self._initialized = False
-            logger.info("Database connection pool closed")
-    
+
     def get_pool_status(self) -> dict:
-        """
-        Get current connection pool status.
-        
-        Returns:
-            Dictionary with pool statistics:
-            - size: Current pool size
-            - checked_in: Number of connections checked in
-            - checked_out: Number of connections checked out
-            - overflow: Number of overflow connections
-            - total: Total connections (pool + overflow)
-        """
+        """Return connection pool statistics."""
         if not self._initialized or self._engine is None:
-            return {
-                "size": 0,
-                "checked_in": 0,
-                "checked_out": 0,
-                "overflow": 0,
-                "total": 0,
-            }
-        
+            return {"size": 0, "checked_in": 0, "checked_out": 0, "overflow": 0, "total": 0}
         pool = self._engine.pool
         return {
             "size": pool.size(),
@@ -327,52 +296,88 @@ class DatabaseConnectionManager:
             "total": pool.size() + pool.overflow(),
         }
 
+    # ------------------------------------------------------------------
+    # Destructive operations
+    # ------------------------------------------------------------------
 
-# Global connection manager instance
+    def clear_database(self) -> None:
+        """Drop and recreate all tables.  **Destroys all data.**"""
+        if not self._initialized or self._engine is None:
+            raise RuntimeError("Not initialized.")
+        logger.warning("Clearing database — dropping all tables")
+        from caracal.db.models import Base
+        if self._pg_schema:
+            schema_engine = self._engine.execution_options(
+                schema_translate_map={None: self._pg_schema}
+            )
+            Base.metadata.drop_all(schema_engine)
+            Base.metadata.create_all(schema_engine)
+        else:
+            Base.metadata.drop_all(self._engine)
+            Base.metadata.create_all(self._engine)
+        logger.info("All tables recreated — database is empty")
+
+    def drop_schema(self, schema_name: str | None = None) -> None:
+        """Drop the workspace schema and everything in it.
+
+        Called when a workspace is being permanently deleted.  Has no
+        effect when no schema is configured (tables live in ``public``).
+
+        Args:
+            schema_name: Explicit schema to drop.  Falls back to
+                         ``self.config.schema`` when omitted.
+        """
+        schema = schema_name or self.config.schema
+        if not schema:
+            logger.info("No workspace schema configured — nothing to drop")
+            return
+        if not re.match(r'^[a-z_][a-z0-9_]{0,62}$', schema):
+            raise ValueError(f"Invalid PostgreSQL schema name: {schema!r}")
+        if not self._initialized or self._engine is None:
+            raise RuntimeError("Not initialized.")
+        logger.warning("Dropping PostgreSQL schema: %s", schema)
+        with self._engine.connect() as conn:
+            conn.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            conn.commit()
+        logger.info("Schema '%s' dropped", schema)
+
+    def close(self) -> None:
+        """Dispose of engine and close all pooled connections."""
+        if self._engine is not None:
+            logger.info("Closing database connection pool")
+            self._engine.dispose()
+            self._engine = None
+            self._session_factory = None
+            self._initialized = False
+
+
+# ======================================================================
+# Global / singleton helpers
+# ======================================================================
+
 _connection_manager: Optional[DatabaseConnectionManager] = None
 
 
 def get_connection_manager() -> DatabaseConnectionManager:
-    """
-    Get global database connection manager instance.
-    
-    Returns:
-        DatabaseConnectionManager singleton instance
-    
-    Raises:
-        RuntimeError: If connection manager not initialized
-    """
+    """Return the global ``DatabaseConnectionManager`` (must be initialized)."""
     global _connection_manager
     if _connection_manager is None:
-        raise RuntimeError(
-            "Database connection manager not initialized. "
-            "Call initialize_connection_manager() first."
-        )
+        raise RuntimeError("Call initialize_connection_manager() first.")
     return _connection_manager
 
 
 def initialize_connection_manager(config: DatabaseConfig) -> DatabaseConnectionManager:
-    """
-    Initialize global database connection manager.
-    
-    Args:
-        config: Database configuration
-    
-    Returns:
-        Initialized DatabaseConnectionManager
-    """
+    """Initialize (or reinitialize) the global connection manager."""
     global _connection_manager
     if _connection_manager is not None:
-        logger.warning("Database connection manager already initialized, reinitializing")
         _connection_manager.close()
-    
     _connection_manager = DatabaseConnectionManager(config)
     _connection_manager.initialize()
     return _connection_manager
 
 
 def close_connection_manager() -> None:
-    """Close global database connection manager."""
+    """Close the global connection manager."""
     global _connection_manager
     if _connection_manager is not None:
         _connection_manager.close()
@@ -381,15 +386,7 @@ def close_connection_manager() -> None:
 
 @contextmanager
 def get_session(config: DatabaseConfig) -> Generator[Session, None, None]:
-    """
-    Get a database session using the global connection manager.
-    
-    Args:
-        config: Database configuration
-        
-    Yields:
-        SQLAlchemy Session
-    """
+    """Convenience: initialize a manager and yield a session."""
     manager = initialize_connection_manager(config)
     with manager.session_scope() as session:
         yield session
@@ -397,12 +394,39 @@ def get_session(config: DatabaseConfig) -> Generator[Session, None, None]:
 
 @contextmanager
 def session_scope() -> Generator[Session, None, None]:
-    """
-    Get a database session from the global connection manager.
-    
-    Yields:
-        SQLAlchemy Session
-    """
+    """Yield a session from the global connection manager."""
     manager = get_connection_manager()
     with manager.session_scope() as session:
         yield session
+
+
+def get_db_manager() -> DatabaseConnectionManager:
+    """Create and initialize a ``DatabaseConnectionManager`` from the active
+    workspace ``config.yaml``.
+
+    This is the **single canonical helper** that all TUI flow screens and
+    CLI commands should use instead of manually constructing a
+    ``DatabaseConfig``.
+
+    Environment variables (``CARACAL_DB_*``) take highest precedence,
+    followed by the YAML config values.
+    """
+    from caracal.config import load_config
+
+    config = load_config()
+
+    db_config = DatabaseConfig(
+        host=getattr(config.database, "host", "localhost"),
+        port=int(getattr(config.database, "port", 5432)),
+        database=getattr(config.database, "database", "caracal"),
+        user=getattr(config.database, "user", "caracal"),
+        password=getattr(config.database, "password", ""),
+        schema=getattr(config.database, "schema", ""),
+        pool_size=getattr(config.database, "pool_size", 10),
+        max_overflow=getattr(config.database, "max_overflow", 5),
+        pool_timeout=getattr(config.database, "pool_timeout", 30),
+    )
+
+    manager = DatabaseConnectionManager(db_config)
+    manager.initialize()
+    return manager

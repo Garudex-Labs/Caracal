@@ -1,11 +1,13 @@
 """
-SQLAlchemy models for Caracal Core v0.5 PostgreSQL backend.
+SQLAlchemy models for Caracal Core PostgreSQL backend.
 
 This module defines the database schema for:
 - Principal identities with parent-child relationships
 - Authority policies with delegation tracking
 - Ledger events for immutable resource usage records
 - Execution mandates for authority enforcement
+
+PostgreSQL is the only supported backend.
 """
 
 from datetime import datetime
@@ -23,7 +25,6 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
-    JSON,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.ext.declarative import declarative_base
@@ -32,15 +33,9 @@ from sqlalchemy.orm import relationship
 Base = declarative_base()
 
 
-# Use JSONB for PostgreSQL, JSON for other databases
 def get_json_type():
-    """Get appropriate JSON type based on database dialect."""
-    try:
-        # Try to use JSONB for PostgreSQL
-        return JSONB
-    except:
-        # Fall back to JSON for other databases
-        return JSON
+    """Return JSONB for PostgreSQL."""
+    return JSONB
 
 
 class LedgerEvent(Base):
@@ -56,7 +51,7 @@ class LedgerEvent(Base):
     __tablename__ = "ledger_events"
     
     # Primary key with auto-increment
-    event_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    event_id = Column(BigInteger, primary_key=True, autoincrement=True)
     
     # Foreign key to principal
     agent_id = Column(
@@ -72,7 +67,7 @@ class LedgerEvent(Base):
     quantity = Column(Numeric(precision=20, scale=6), nullable=False)
     
     # Metadata
-    event_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    event_metadata = Column("metadata", JSONB, nullable=True)
     
     # Merkle tree integration (v0.3)
     merkle_root_id = Column(
@@ -108,7 +103,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
     
     # Primary key with auto-increment
-    log_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    log_id = Column(BigInteger, primary_key=True, autoincrement=True)
     
     # Event identification
     event_id = Column(String(255), nullable=False, index=True)
@@ -126,7 +121,7 @@ class AuditLog(Base):
     # Event data
     agent_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
     correlation_id = Column(String(255), nullable=True, index=True)
-    event_data = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    event_data = Column(JSONB, nullable=False)
     
     # Composite indexes for common queries
     __table_args__ = (
@@ -214,7 +209,7 @@ class LedgerSnapshot(Base):
     merkle_root = Column(String(64), nullable=False)  # Hex-encoded SHA-256 hash
     
     # Snapshot data (aggregated usage per agent)
-    snapshot_data = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    snapshot_data = Column(JSONB, nullable=False)
     
     # Creation timestamp
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
@@ -262,7 +257,7 @@ class Principal(Base):
     
     # Metadata
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    principal_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    principal_metadata = Column("metadata", JSONB, nullable=True)
     
     # Relationships
     parent = relationship(
@@ -310,15 +305,15 @@ class ExecutionMandate(Base):
     valid_until = Column(DateTime, nullable=False, index=True)
     
     # Scope
-    resource_scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)  # List of resource patterns
-    action_scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)    # List of allowed actions
+    resource_scope = Column(JSONB, nullable=False)  # List of resource patterns
+    action_scope = Column(JSONB, nullable=False)    # List of allowed actions
     
     # Cryptographic signature
     signature = Column(String(512), nullable=False)  # ECDSA P-256 signature
     
     # Metadata
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    mandate_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    mandate_metadata = Column("metadata", JSONB, nullable=True)
     
     # Revocation
     revoked = Column(Boolean, nullable=False, default=False, index=True)
@@ -359,7 +354,7 @@ class AuthorityLedgerEvent(Base):
     __tablename__ = "authority_ledger_events"
     
     # Primary key with auto-increment
-    event_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    event_id = Column(BigInteger, primary_key=True, autoincrement=True)
     
     # Event identification
     event_type = Column(String(50), nullable=False, index=True)  # issued, validated, denied, revoked
@@ -388,7 +383,7 @@ class AuthorityLedgerEvent(Base):
     requested_resource = Column(String(1000), nullable=True)
     
     # Metadata
-    event_metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    event_metadata = Column(JSONB, nullable=True)
     correlation_id = Column(String(255), nullable=True, index=True)
     
     # Merkle tree integration
@@ -441,8 +436,8 @@ class AuthorityPolicy(Base):
     max_validity_seconds = Column(Integer, nullable=False)  # Maximum TTL for mandates
     
     # Scope constraints
-    allowed_resource_patterns = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)  # List of regex/glob patterns
-    allowed_actions = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)  # List of action types
+    allowed_resource_patterns = Column(JSONB, nullable=False)  # List of regex/glob patterns
+    allowed_actions = Column(JSONB, nullable=False)  # List of action types
     
     # Delegation constraints
     allow_delegation = Column(Boolean, nullable=False, default=False)
