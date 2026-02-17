@@ -80,23 +80,10 @@ class AuthorityPolicyFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityPolicy
             
-            config = load_config()
-            
-            # Create database connection
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 policies = db_session.query(AuthorityPolicy).all()
@@ -148,24 +135,12 @@ class AuthorityPolicyFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import Principal, AuthorityPolicy
             from datetime import datetime
             
-            config = load_config()
-            
             # Create database connection
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 # Get principals
@@ -289,22 +264,10 @@ class AuthorityPolicyFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityPolicy
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 policies = db_session.query(AuthorityPolicy).all()
@@ -365,22 +328,10 @@ class AuthorityPolicyFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityPolicy
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 policies = db_session.query(AuthorityPolicy).all()
@@ -454,22 +405,10 @@ class AuthorityPolicyFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityPolicy
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 policies = db_session.query(AuthorityPolicy).filter_by(active=True).all()

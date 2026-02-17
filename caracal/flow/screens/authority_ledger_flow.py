@@ -80,22 +80,10 @@ class AuthorityLedgerFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityLedgerEvent
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 # Get recent events (last 50)
@@ -148,22 +136,10 @@ class AuthorityLedgerFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityLedgerEvent, Principal
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 # Build filters interactively
@@ -272,22 +248,10 @@ class AuthorityLedgerFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityLedgerEvent
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 # Get event ID
@@ -350,22 +314,10 @@ class AuthorityLedgerFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityLedgerEvent
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 # Select export format

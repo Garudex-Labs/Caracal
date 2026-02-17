@@ -31,20 +31,11 @@ def get_mandate_manager(config):
     Returns:
         MandateManager instance with database session
     """
-    from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+    from caracal.db.connection import get_db_manager
     from caracal.core.mandate import MandateManager
     from caracal.core.authority_ledger import AuthorityLedgerWriter
     
-    # Create database connection
-    db_config = DatabaseConfig(
-        host=config.database.host,
-        port=config.database.port,
-        database=config.database.database,
-        user=config.database.user,
-        password=config.database.password
-    )
-    db_manager = DatabaseConnectionManager(db_config)
-    db_manager.initialize()
+    db_manager = get_db_manager()
     
     # Get session
     session = db_manager.get_session()
@@ -66,20 +57,11 @@ def get_authority_evaluator(config):
     Returns:
         AuthorityEvaluator instance with database session
     """
-    from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+    from caracal.db.connection import get_db_manager
     from caracal.core.authority import AuthorityEvaluator
     from caracal.core.authority_ledger import AuthorityLedgerWriter
     
-    # Create database connection
-    db_config = DatabaseConfig(
-        host=config.database.host,
-        port=config.database.port,
-        database=config.database.database,
-        user=config.database.user,
-        password=config.database.password
-    )
-    db_manager = DatabaseConnectionManager(db_config)
-    db_manager.initialize()
+    db_manager = get_db_manager()
     
     # Get session
     session = db_manager.get_session()
@@ -574,18 +556,10 @@ def list_mandates(
                 sys.exit(1)
         
         # Create database connection
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+        from caracal.db.connection import get_db_manager
         from caracal.db.models import ExecutionMandate
         
-        db_config = DatabaseConfig(
-            host=cli_ctx.config.database.host,
-            port=cli_ctx.config.database.port,
-            database=cli_ctx.config.database.database,
-            user=cli_ctx.config.database.user,
-            password=cli_ctx.config.database.password
-        )
-        db_manager = DatabaseConnectionManager(db_config)
-        db_manager.initialize()
+        db_manager = get_db_manager()
         
         try:
             # Query mandates
