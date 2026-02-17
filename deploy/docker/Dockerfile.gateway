@@ -21,15 +21,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency files
-COPY pyproject.toml setup.py MANIFEST.in ./
-COPY README.md LICENSE VERSION ./
+COPY Caracal/pyproject.toml Caracal/setup.py Caracal/MANIFEST.in ./
+COPY Caracal/README.md Caracal/LICENSE Caracal/VERSION ./
 
 # Copy source code
-COPY caracal/ ./caracal/
+COPY Caracal/caracal/ ./caracal/
 
-# Install dependencies and build wheel
+# Copy and install local ASE package, then build Caracal wheel
+COPY ase/ /build/ase/
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip wheel --no-cache-dir --wheel-dir /wheels .
+    pip install --no-cache-dir /build/ase/ && \
+    pip wheel --no-cache-dir --wheel-dir /wheels . && \
+    pip wheel --no-cache-dir --wheel-dir /wheels /build/ase/
 
 # Stage 2: Runtime - Minimal production image
 FROM python:3.10-slim
@@ -85,12 +88,12 @@ from caracal.gateway.proxy import GatewayProxy, GatewayConfig
 from caracal.gateway.auth import Authenticator
 from caracal.gateway.replay_protection import ReplayProtection, ReplayProtectionConfig
 from caracal.core.identity import AgentRegistry
-from caracal.core.policy import PolicyStore, PolicyEvaluator
+from caracal.core.authority import AuthorityEvaluator
 from caracal.core.ledger import LedgerWriter, LedgerQuery
 from caracal.core.metering import MeteringCollector
-from caracal.db.connection import DatabaseConnectionManager
+from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
 from caracal.logging_config import setup_logging
-from caracal.monitoring.metrics import initialize_metrics
+from caracal.monitoring.metrics import initialize_metrics_registry
 
 
 async def main():
@@ -98,7 +101,7 @@ async def main():
     
     # Setup logging
     log_level = os.getenv("LOG_LEVEL", "INFO")
-    setup_logging(log_level=log_level)
+    setup_logging(level=log_level)
     
     print("=" * 60)
     print(f"Caracal Gateway Proxy v{__version__}")
@@ -106,28 +109,16 @@ async def main():
     
     # Initialize metrics
     print("\nInitializing metrics...")
-    initialize_metrics()
+    initialize_metrics_registry()
     
-    # Database configuration
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_port = int(os.getenv("DB_PORT", "5432"))
-    db_name = os.getenv("DB_NAME", "caracal")
-    db_user = os.getenv("DB_USER", "caracal")
-    db_password = os.getenv("DB_PASSWORD", "")
+    # Database configuration (DatabaseConfig reads DB_* env vars automatically)
+    db_config = DatabaseConfig()
     
-    print(f"\nDatabase: {db_user}@{db_host}:{db_port}/{db_name}")
+    print(f"\nDatabase: {db_config.user}@{db_config.host}:{db_config.port}/{db_config.database}")
     
     # Initialize database connection
-    db_connection_manager = DatabaseConnectionManager(
-        host=db_host,
-        port=db_port,
-        database=db_name,
-        user=db_user,
-        password=db_password,
-        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
-        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "5")),
-        pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "30"))
-    )
+    db_connection_manager = DatabaseConnectionManager(config=db_config)
+    db_connection_manager.initialize()
     
     # Test database connection
     if not db_connection_manager.health_check():
@@ -136,23 +127,20 @@ async def main():
     
     print("✓ Database connection successful")
     
-    # Initialize core components with database session
+    # Initialize core components
     session = db_connection_manager.get_session()
     
-    agent_registry = AgentRegistry(session)
-    policy_store = PolicyStore(session)
-    ledger_writer = LedgerWriter(session)
-    ledger_query = LedgerQuery(session)
+    agent_registry = AgentRegistry(registry_path="/etc/caracal/config/agents.json")
+    ledger_writer = LedgerWriter(ledger_path="/var/log/caracal/ledger.json")
     
     # Initialize metering collector
     metering_collector = MeteringCollector(
         ledger_writer=ledger_writer
     )
     
-    # Initialize policy evaluator
-    policy_evaluator = PolicyEvaluator(
-        policy_store=policy_store,
-        ledger_query=ledger_query
+    # Initialize authority evaluator
+    authority_evaluator = AuthorityEvaluator(
+        db_session=session
     )
     
     print("✓ Core components initialized")
@@ -163,12 +151,15 @@ async def main():
     
     if auth_mode == "jwt":
         jwt_key_path = os.getenv("JWT_PUBLIC_KEY_PATH", "/etc/caracal/tls/jwt_public.pem")
-        if Path(jwt_key_path).exists():
-            with open(jwt_key_path, "r") as f:
-                jwt_public_key = f.read()
-            print(f"✓ Loaded JWT public key from {jwt_key_path}")
-        else:
-            print(f"WARNING: JWT public key not found at {jwt_key_path}")
+        try:
+            if Path(jwt_key_path).exists():
+                with open(jwt_key_path, "r") as f:
+                    jwt_public_key = f.read()
+                print(f"✓ Loaded JWT public key from {jwt_key_path}")
+            else:
+                print(f"WARNING: JWT public key not found at {jwt_key_path}")
+        except (PermissionError, OSError) as e:
+            print(f"WARNING: Cannot access JWT public key at {jwt_key_path}: {e}")
     
     authenticator = Authenticator(
         agent_registry=agent_registry,
@@ -215,16 +206,13 @@ async def main():
         enable_replay_protection=enable_replay,
         request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT", "30")),
         max_request_size_mb=int(os.getenv("MAX_REQUEST_SIZE_MB", "10")),
-        enable_policy_cache=os.getenv("ENABLE_POLICY_CACHE", "true").lower() == "true",
-        policy_cache_ttl=int(os.getenv("POLICY_CACHE_TTL", "60")),
-        policy_cache_max_size=int(os.getenv("POLICY_CACHE_MAX_SIZE", "10000"))
     )
     
     # Initialize Gateway Proxy
     gateway = GatewayProxy(
         config=gateway_config,
         authenticator=authenticator,
-        policy_evaluator=policy_evaluator,
+        authority_evaluator=authority_evaluator,
         metering_collector=metering_collector,
         replay_protection=replay_protection,
         db_connection_manager=db_connection_manager
@@ -237,7 +225,6 @@ async def main():
     print(f"  - mTLS Enabled: {tls_ca_exists}")
     print(f"  - Auth Mode: {auth_mode}")
     print(f"  - Replay Protection: {enable_replay}")
-    print(f"  - Policy Cache: {gateway_config.enable_policy_cache}")
     
     print("\nEndpoints:")
     print(f"  - GET  /health  - Health check")
