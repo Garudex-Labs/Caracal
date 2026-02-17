@@ -21,15 +21,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency files
-COPY pyproject.toml setup.py MANIFEST.in ./
-COPY README.md LICENSE VERSION ./
+COPY Caracal/pyproject.toml Caracal/setup.py Caracal/MANIFEST.in ./
+COPY Caracal/README.md Caracal/LICENSE Caracal/VERSION ./
 
 # Copy source code
-COPY caracal/ ./caracal/
+COPY Caracal/caracal/ ./caracal/
 
-# Install dependencies and build wheel
+# Copy and install local ASE package, then build Caracal wheel
+COPY ase/ /build/ase/
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip wheel --no-cache-dir --wheel-dir /wheels .
+    pip install --no-cache-dir /build/ase/ && \
+    pip wheel --no-cache-dir --wheel-dir /wheels . && \
+    pip wheel --no-cache-dir --wheel-dir /wheels /build/ase/
 
 # Stage 2: Runtime - Minimal production image
 FROM python:3.10-slim
@@ -85,12 +88,12 @@ from caracal.mcp.service import MCPAdapterService, MCPServiceConfig, MCPServerCo
 from caracal.mcp.adapter import MCPAdapter
 
 from caracal.core.identity import AgentRegistry
-from caracal.core.policy import PolicyStore, PolicyEvaluator
-from caracal.core.ledger import LedgerWriter, LedgerQuery
+from caracal.core.authority import AuthorityEvaluator
+from caracal.core.ledger import LedgerWriter
 from caracal.core.metering import MeteringCollector
-from caracal.db.connection import DatabaseConnectionManager
+from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
 from caracal.logging_config import setup_logging
-from caracal.monitoring.metrics import initialize_metrics
+from caracal.monitoring.metrics import initialize_metrics_registry
 
 
 async def main():
@@ -98,7 +101,7 @@ async def main():
     
     # Setup logging
     log_level = os.getenv("LOG_LEVEL", "INFO")
-    setup_logging(log_level=log_level)
+    setup_logging(level=log_level)
     
     print("=" * 60)
     print(f"Caracal MCP Adapter v{__version__}")
@@ -106,28 +109,16 @@ async def main():
     
     # Initialize metrics
     print("\nInitializing metrics...")
-    initialize_metrics()
+    initialize_metrics_registry()
     
-    # Database configuration
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_port = int(os.getenv("DB_PORT", "5432"))
-    db_name = os.getenv("DB_NAME", "caracal")
-    db_user = os.getenv("DB_USER", "caracal")
-    db_password = os.getenv("DB_PASSWORD", "")
+    # Database configuration (DatabaseConfig reads DB_* env vars automatically)
+    db_config = DatabaseConfig()
     
-    print(f"\nDatabase: {db_user}@{db_host}:{db_port}/{db_name}")
+    print(f"\nDatabase: {db_config.user}@{db_config.host}:{db_config.port}/{db_config.database}")
     
     # Initialize database connection
-    db_connection_manager = DatabaseConnectionManager(
-        host=db_host,
-        port=db_port,
-        database=db_name,
-        user=db_user,
-        password=db_password,
-        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
-        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "5")),
-        pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "30"))
-    )
+    db_connection_manager = DatabaseConnectionManager(config=db_config)
+    db_connection_manager.initialize()
     
     # Test database connection
     if not db_connection_manager.health_check():
@@ -136,30 +127,26 @@ async def main():
     
     print("✓ Database connection successful")
     
-    # Initialize core components with database session
+    # Initialize core components
     session = db_connection_manager.get_session()
     
-    agent_registry = AgentRegistry(session)
-    policy_store = PolicyStore(session)
-    ledger_writer = LedgerWriter(session)
-    ledger_query = LedgerQuery(session)
+    ledger_writer = LedgerWriter(ledger_path="/var/log/caracal/ledger.json")
     
     # Initialize metering collector
     metering_collector = MeteringCollector(
         ledger_writer=ledger_writer
     )
     
-    # Initialize policy evaluator
-    policy_evaluator = PolicyEvaluator(
-        policy_store=policy_store,
-        ledger_query=ledger_query
+    # Initialize authority evaluator
+    authority_evaluator = AuthorityEvaluator(
+        db_session=session
     )
     
     print("✓ Core components initialized")
     
     # Initialize MCP adapter
     mcp_adapter = MCPAdapter(
-        policy_evaluator=policy_evaluator,
+        authority_evaluator=authority_evaluator,
         metering_collector=metering_collector
     )
     
@@ -201,7 +188,7 @@ async def main():
     mcp_service = MCPAdapterService(
         config=mcp_service_config,
         mcp_adapter=mcp_adapter,
-        policy_evaluator=policy_evaluator,
+        authority_evaluator=authority_evaluator,
         metering_collector=metering_collector,
         db_connection_manager=db_connection_manager
     )
