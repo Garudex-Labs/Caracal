@@ -81,22 +81,10 @@ class MandateFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import ExecutionMandate, Principal
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 # Optional principal filter
@@ -162,23 +150,11 @@ class MandateFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import Principal
             from caracal.core.mandate import MandateManager
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 # Get principals
@@ -289,23 +265,11 @@ class MandateFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import ExecutionMandate
             from caracal.core.crypto import verify_mandate_signature
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 mandates = db_session.query(ExecutionMandate).all()
@@ -389,23 +353,11 @@ class MandateFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import ExecutionMandate
             from caracal.core.authority import AuthorityEvaluator
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 mandates = db_session.query(ExecutionMandate).filter_by(revoked=False).all()
@@ -474,23 +426,11 @@ class MandateFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import ExecutionMandate
             from caracal.core.mandate import MandateManager
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 mandates = db_session.query(ExecutionMandate).filter_by(revoked=False).all()
