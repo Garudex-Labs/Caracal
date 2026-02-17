@@ -1372,10 +1372,35 @@ def run_onboarding(
                         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal already exists, reusing.[/]")
                         console.print(f"  [{Colors.DIM}]Principal ID: {principal_id}[/]")
                     else:
+                        # Generate ECDSA P-256 key pair for the principal
+                        from cryptography.hazmat.primitives.asymmetric import ec
+                        from cryptography.hazmat.primitives import serialization
+                        from cryptography.hazmat.backends import default_backend
+                        
+                        console.print(f"  [{Colors.INFO}]{Icons.INFO} Generating cryptographic keys...[/]")
+                        
+                        private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+                        
+                        # Serialize private key to PEM format
+                        private_key_pem = private_key.private_bytes(
+                            encoding=serialization.Encoding.PEM,
+                            format=serialization.PrivateFormat.PKCS8,
+                            encryption_algorithm=serialization.NoEncryption()
+                        ).decode('utf-8')
+                        
+                        # Extract public key and serialize to PEM format
+                        public_key = private_key.public_key()
+                        public_key_pem = public_key.public_bytes(
+                            encoding=serialization.Encoding.PEM,
+                            format=serialization.PublicFormat.SubjectPublicKeyInfo
+                        ).decode('utf-8')
+                        
                         principal = Principal(
                             name=principal_data["name"],
                             principal_type=principal_data["type"],
                             owner=principal_data["owner"],
+                            public_key_pem=public_key_pem,
+                            private_key_pem=private_key_pem,
                             created_at=datetime.utcnow(),
                         )
                         
@@ -1421,6 +1446,40 @@ def run_onboarding(
             except Exception as e:
                 console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to create policy: {e}[/]")
         
+        # Issue first mandate if requested (create mandate record in DB)
+        mandate_data = results.get("mandate")
+        if mandate_data and not mandate_data.get("_existing") and principal_id:
+            try:
+                console.print()
+                console.print(f"  [{Colors.INFO}]{Icons.INFO} Issuing first mandate for {principal_data['name']}...[/]")
+                from caracal.core.mandate import MandateManager
+
+                with db_manager.session_scope() as db_session:
+                    mandate_manager = MandateManager(db_session)
+
+                    # Use provided scopes or fall back to policy defaults
+                    resource_scope = mandate_data.get("resource_scope") or policy_data.get("resource_patterns", [])
+                    action_scope = mandate_data.get("action_scope") or policy_data.get("actions", [])
+                    validity_seconds = int(mandate_data.get("validity_seconds", 900))
+
+                    mandate = mandate_manager.issue_mandate(
+                        issuer_id=principal_id,
+                        subject_id=principal_id,
+                        resource_scope=resource_scope,
+                        action_scope=action_scope,
+                        validity_seconds=validity_seconds,
+                    )
+
+                    # Record mandate id in results/context for visibility
+                    results["mandate_id"] = str(mandate.mandate_id)
+                    wizard.context["first_mandate"]["mandate_id"] = str(mandate.mandate_id)
+
+                    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Mandate issued successfully.[/]")
+                    console.print(f"  [{Colors.DIM}]Mandate ID: {mandate.mandate_id}[/]")
+
+            except Exception as e:
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to issue mandate: {e}[/]")
+
         # Close database connection
         if db_manager:
             db_manager.close()
