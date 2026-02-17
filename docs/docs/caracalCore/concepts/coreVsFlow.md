@@ -104,7 +104,7 @@ Best for:
 1. **Automation** -- CI/CD pipelines, scripts
 2. **Advanced operations** -- Merkle proofs, key rotation
 3. **Recovery** -- DLQ management, event replay
-4. **Infrastructure** -- Database migrations, Kafka setup
+4. **Infrastructure** -- Database migrations
 5. **Auditing** -- Ledger verification, proof export
 
 <details>

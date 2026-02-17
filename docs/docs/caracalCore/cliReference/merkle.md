@@ -338,8 +338,7 @@ Recommended Actions
 -------------------
   1. Investigate the source of modification
   2. Restore from last known good snapshot
-  3. Replay events from Kafka if available
-  4. Contact security team
+  3. Contact security team
 ```
 
 ---

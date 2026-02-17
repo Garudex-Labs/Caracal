@@ -13,7 +13,6 @@ This guide covers installing Caracal Core and its dependencies.
 - **Docker** and **Docker Compose** (for containerized deployment)
 - **PostgreSQL 14+** (database)
 - **Redis 7+** (optional, for real-time metrics)
-- **Kafka** (optional, for event-driven architecture)
 
 ## Installation Methods
 

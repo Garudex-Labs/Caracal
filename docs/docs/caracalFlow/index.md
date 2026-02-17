@@ -151,7 +151,7 @@ Configure Caracal and manage infrastructure:
 
 - View current configuration
 - Edit config files
-- **Infrastructure**: Start/stop Docker services (Postgres, Kafka)
+- **Infrastructure**: Start/stop Docker services (Postgres)
 - **Database**: Check connection status
 - **Backup & Restore**: Create and restore data backups (SQLite only)
 

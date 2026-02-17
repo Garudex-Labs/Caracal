@@ -99,31 +99,11 @@ caracal db health-check
 
 **Common Causes:**
 - Database unavailable
-- Kafka unavailable
 - Redis unavailable
 
 **Resolution:**
 ```bash
 kubectl rollout restart deployment/<component>
-```
-
-### Kafka Consumer Lag Increasing
-
-**Diagnosis:**
-```bash
-caracal kafka consumer-lag --consumer-group ledger-writer-group
-kubectl logs -f deployment/caracal-ledger-writer --tail=100
-```
-
-**Resolution:**
-```bash
-# Scale consumers
-kubectl scale deployment/caracal-ledger-writer --replicas=5
-
-# Increase resources
-kubectl set resources deployment/caracal-ledger-writer \
-  --limits=cpu=2,memory=4Gi \
-  --requests=cpu=1,memory=2Gi
 ```
 
 ### Merkle Verification Failures
@@ -239,7 +219,6 @@ database:
 
 - `caracal_gateway_requests_total` - Total requests
 - `caracal_gateway_request_duration_seconds` - Request latency
-- `caracal_kafka_consumer_lag` - Consumer lag
 - `caracal_merkle_verification_failures_total` - Verification failures
 - `caracal_dlq_size` - Dead letter queue size
 
@@ -255,7 +234,7 @@ kubectl apply -f monitoring/grafana/dashboards/
 
 1. Check infrastructure: `kubectl get pods --all-namespaces`
 2. Check recent changes: `kubectl rollout history deployment/<component>`
-3. Restart in order: Database > Kafka > Redis > Gateway > Consumers
+3. Restart in order: Database > Redis > Gateway > Consumers
 4. Verify health: `curl http://gateway:8443/health`
 
 ### Data Corruption Detected
@@ -269,7 +248,6 @@ kubectl apply -f monitoring/grafana/dashboards/
 2. **Preserve Evidence:**
    ```bash
    caracal backup create --type postgresql --tag "corruption-evidence"
-   caracal backup create --type kafka --tag "corruption-evidence"
    ```
 
 3. **Notify Security Team**

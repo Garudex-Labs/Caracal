@@ -68,10 +68,6 @@ caracal
   |     +-- restore       Restore from backup
   |     +-- list          List backups
   |
-  +-- kafka           Kafka management
-  |     +-- status        Check connection
-  |     +-- topics        List topics
-  |
   +-- keys            Key management
         +-- list          List keys
         +-- rotate        Rotate keys
@@ -91,7 +87,6 @@ caracal
 | db | Database schema and migrations | [Database Commands](./database) |
 | merkle | Cryptographic integrity verification | [Merkle Commands](./merkle) |
 | backup | Backup and restore operations | [Backup Commands](./backup) |
-| kafka | Kafka event stream management | [Kafka Commands](./kafka) |
 | keys | Cryptographic key management | [Key Commands](./keys) |
 
 ---

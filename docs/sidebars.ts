@@ -46,7 +46,6 @@ const sidebars: SidebarsConfig = {
               label: 'Resource Registry',
             },
             'caracalCore/cliReference/backup',
-            'caracalCore/cliReference/kafka',
             'caracalCore/cliReference/keys',
           ],
         },
