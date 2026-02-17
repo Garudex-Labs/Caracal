@@ -23,10 +23,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
-COPY pyproject.toml setup.py VERSION ./
-COPY caracal/ ./caracal/
-RUN pip install -e . && \
-    sed -i 's/from typing import Dict/from typing import Any, Dict/' /usr/local/lib/python3.10/site-packages/ase/core/versioning.py
+COPY Caracal/pyproject.toml Caracal/setup.py Caracal/VERSION ./
+COPY Caracal/caracal/ ./caracal/
+
+# Copy and install local ASE package first
+COPY ase/ /tmp/ase/
+RUN pip install /tmp/ase/ && \
+    pip install -e . && \
+    sed -i 's/from typing import Dict/from typing import Any, Dict/' /usr/local/lib/python3.10/site-packages/ase/core/versioning.py && \
+    rm -rf /tmp/ase/
 
 # Create non-root user
 RUN useradd -m -u 1000 caracal && \
