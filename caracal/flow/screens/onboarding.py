@@ -257,6 +257,21 @@ def _step_workspace(wizard: Wizard) -> Any:
         wizard.context["workspace_name"] = selected_name
         wizard.context["workspace_existing"] = True
         
+        # Check if this workspace was already fully onboarded
+        # by reading its flow_state.json — if so, mark it so
+        # subsequent steps auto-skip instead of re-prompting.
+        state_file = workspace_path / "flow_state.json"
+        if state_file.exists():
+            try:
+                import json as _json
+                state_data = _json.loads(state_file.read_text())
+                ob = state_data.get("onboarding", {})
+                if ob.get("completed", False):
+                    wizard.context["previously_onboarded"] = True
+                    wizard.context["completed_steps"] = ob.get("steps_completed", [])
+            except Exception:
+                pass
+        
         return str(workspace_path)
     
     elif action == "Create new workspace":
@@ -366,7 +381,7 @@ def _step_config(wizard: Wizard) -> Any:
     else:
         config_path = get_workspace().root
     
-    # If workspace was just created, skip the existing config check
+    # If workspace was just created, initialize fresh config
     if wizard.context.get("workspace_existing") is False:
         console.print(f"  [{Colors.INFO}]{Icons.INFO} Initializing new workspace configuration...[/]")
         
@@ -380,40 +395,20 @@ def _step_config(wizard: Wizard) -> Any:
         wizard.context["config_path"] = str(config_path)
         return str(config_path)
     
+    # ── Existing workspace: preserve existing configuration silently ──
+    if wizard.context.get("workspace_existing") and config_path.exists() and (config_path / "config.yaml").exists():
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Using existing configuration at {config_path}[/]")
+        wizard.context["config_path"] = str(config_path)
+        return str(config_path)
+    
+    # ── No config found for existing workspace — initialize ──
     console.print(f"  [{Colors.NEUTRAL}]Caracal stores its configuration and data files in a directory.")
     console.print(f"  [{Colors.DIM}]Location: {config_path}[/]")
-    console.print()
-    
-    # Determine if we should wipe based on whether we found existing config and user rejected it
-    wipe = False
-    if config_path.exists() and (config_path / "config.yaml").exists():
-        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration found at {config_path}[/]")
-        console.print()
-        
-        use_existing = prompt.confirm(
-            "Use existing configuration?",
-            default=True,
-        )
-        
-        if use_existing:
-            wizard.context["config_path"] = str(config_path)
-            
-            # Check if user wants to start fresh with data
-            if prompt.confirm("Reset database (clear all data)?", default=False):
-                wizard.context["fresh_start"] = True
-                
-            return str(config_path)
-        else:
-            wipe = True
-            wizard.context["fresh_start"] = True
-    console.print()
-    
-    # Initialize directory structure
     console.print()
     console.print(f"  [{Colors.INFO}]{Icons.INFO} Initializing configuration...[/]")
     
     try:
-        _initialize_caracal_dir(config_path, wipe=wipe)
+        _initialize_caracal_dir(config_path, wipe=False)
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration initialized at {config_path}[/]")
         wizard.context["config_path"] = str(config_path)
         return str(config_path)
@@ -471,10 +466,8 @@ logging:
     if not ledger_path.exists():
         ledger_path.write_text("")
     
-    # SQLite database file - should be wiped if fresh start
-    db_path = path / "caracal.db"
-    if db_path.exists() and wipe:
-        db_path.unlink()
+    # Note: SQLite no longer supported — PostgreSQL only.
+    # Legacy .db files are left in place (harmless) for manual cleanup.
 
 
 def _validate_env_config(config: dict) -> list[str]:
@@ -596,43 +589,76 @@ def _start_postgresql(console: Console, method: str = "auto") -> tuple[bool, str
     return False, "All start methods failed. Please start PostgreSQL manually."
 
 
+def _load_existing_db_config(wizard: Wizard, console: Console) -> Any:
+    """Try to load database config from an existing workspace's config.yaml.
+    
+    Returns the database context dict if found, or None if no DB config exists
+    (so the caller should fall through to the normal setup flow).
+    """
+    workspace_path = wizard.context.get("workspace_path")
+    if not workspace_path:
+        return None
+    
+    config_file = Path(workspace_path) / "config.yaml"
+    if not config_file.exists():
+        return None
+    
+    try:
+        import yaml
+        with open(config_file, "r") as f:
+            config_yaml = yaml.safe_load(f) or {}
+        
+        db_section = config_yaml.get("database")
+        if not db_section:
+            return None
+        
+        env_config = {
+            "host": db_section.get("host", "localhost"),
+            "port": int(db_section.get("port", 5432)),
+            "database": db_section.get("database", "caracal"),
+            "username": db_section.get("user", "caracal"),
+            "password": db_section.get("password", ""),
+        }
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Using existing PostgreSQL configuration[/]")
+        console.print(f"  [{Colors.DIM}]  Host:     {env_config['host']}:{env_config['port']}[/]")
+        console.print(f"  [{Colors.DIM}]  Database: {env_config['database']}[/]")
+        console.print(f"  [{Colors.DIM}]  User:     {env_config['username']}[/]")
+        wizard.context["database"] = {**env_config, "type": "postgresql"}
+        wizard.context["database_auto_configured"] = True
+        return wizard.context["database"]
+    except Exception:
+        return None
+
+
 def _step_database(wizard: Wizard) -> Any:
-    """Step 2: Database setup — strict PostgreSQL or explicit SQLite choice.
+    """Step 2: Database setup — PostgreSQL only.
     
     Logic:
-    - Ask user: PostgreSQL (Y) or SQLite (N)?
-    - If Y (PostgreSQL):
-        - Validate env vars from .env; prompt user to fix if missing
-        - Auto-start PostgreSQL if not running
-        - Test connection; on failure show clear errors
-        - NEVER fall back to SQLite — loop until PostgreSQL works
-    - If N (SQLite):
-        - Use file-based SQLite in workspace directory
+    - If existing workspace with database already configured, use it silently.
+    - Validate env vars from .env; prompt user to fix if missing
+    - Auto-start PostgreSQL if not running
+    - Test connection; on failure show clear errors
+    - Loop until PostgreSQL works — no fallback
     
     Database is mandatory. This step cannot be skipped.
     """
     console = wizard.console
     prompt = FlowPrompt(console)
     
+    # ── Existing workspace: preserve existing database silently ──
+    if wizard.context.get("workspace_existing"):
+        db_result = _load_existing_db_config(wizard, console)
+        if db_result is not None:
+            return db_result
+    
     console.print()
-    console.print(f"  [{Colors.INFO}]{Icons.INFO} Configuring database...[/]")
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Configuring PostgreSQL database...[/]")
     console.print()
-    console.print(f"  [{Colors.NEUTRAL}]Caracal supports two database backends:[/]")
-    console.print(f"  [{Colors.DIM}]  • PostgreSQL — recommended for production (persistent, scalable)[/]")
-    console.print(f"  [{Colors.DIM}]  • SQLite     — lightweight file-based (good for development)[/]")
+    console.print(f"  [{Colors.NEUTRAL}]Caracal uses PostgreSQL as its database backend.[/]")
+    console.print(f"  [{Colors.DIM}]Each workspace gets its own isolated PostgreSQL schema.[/]")
     console.print()
     
-    wants_postgres = prompt.confirm(
-        "Use PostgreSQL?",
-        default=True,
-    )
-    
-    if not wants_postgres:
-        # ── SQLite path ──────────────────────────────────────────────
-        return _setup_sqlite(wizard, console)
-    
-    # ── PostgreSQL path ──────────────────────────────────────────────
-    # PostgreSQL was chosen — we MUST get it working. No SQLite fallback.
+    # ── PostgreSQL path — must succeed, no fallback ──
     
     while True:
         # 1. Load and validate env config
@@ -757,11 +783,10 @@ def _step_database(wizard: Wizard) -> Any:
                 console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Auto-start failed: {start_msg}[/]")
             console.print()
         
-        # 6. PostgreSQL still not working — do NOT fall back to SQLite
+        # 6. PostgreSQL still not working — loop until resolved
         #    Let user fix the issue and retry
         console.print(f"  [{Colors.WARNING}]⚠️  PostgreSQL must be running to continue.[/]")
-        console.print(f"  [{Colors.DIM}]Fix the issue above and retry. Caracal will not fall back to SQLite[/]")
-        console.print(f"  [{Colors.DIM}]when PostgreSQL is selected — database integrity matters.[/]")
+        console.print(f"  [{Colors.DIM}]Fix the issue above and retry — database integrity matters.[/]")
         console.print()
         
         action = prompt.select(
@@ -852,32 +877,18 @@ def _show_connection_error_details(console: Console, error: str, config: dict) -
     console.print()
 
 
-def _setup_sqlite(wizard: Wizard, console: Console) -> Any:
-    """Configure SQLite file-based database."""
-    from caracal.flow.workspace import get_workspace
-    
-    workspace = get_workspace()
-    db_file_path = workspace.db_path
-    
-    console.print()
-    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} SQLite configured successfully[/]")
-    console.print(f"  [{Colors.DIM}]Database file: {db_file_path}[/]")
-    console.print(f"  [{Colors.DIM}]You can switch to PostgreSQL later from settings[/]")
-    console.print()
-    
-    wizard.context["database"] = "file"
-    wizard.context["database_file_path"] = str(db_file_path)
-    
-    # Ensure parent directory exists
-    db_file_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    return wizard.context.get("database")
-
 
 def _step_principal(wizard: Wizard) -> Any:
     """Step 3: Register first principal."""
     console = wizard.console
     prompt = FlowPrompt(console)
+    
+    # ── Existing workspace that was previously onboarded: skip ──
+    if wizard.context.get("previously_onboarded") and "principal" in wizard.context.get("completed_steps", []):
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal already registered in this workspace.[/]")
+        # Set a placeholder so downstream steps know principal exists
+        wizard.context["first_principal"] = {"_existing": True}
+        return wizard.context["first_principal"]
     
     # Get system username for better defaults
     import os
@@ -926,6 +937,12 @@ def _step_policy(wizard: Wizard) -> Any:
     """Step 4: Create first authority policy."""
     console = wizard.console
     prompt = FlowPrompt(console)
+    
+    # ── Existing workspace that was previously onboarded: skip ──
+    if wizard.context.get("previously_onboarded") and "policy" in wizard.context.get("completed_steps", []):
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Authority policy already configured in this workspace.[/]")
+        wizard.context["first_policy"] = {"_existing": True}
+        return wizard.context["first_policy"]
     
     # Check dependency: principal must be created first
     principal_info = wizard.context.get("first_principal")
@@ -988,6 +1005,12 @@ def _step_mandate(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
+    # ── Existing workspace that was previously onboarded: skip ──
+    if wizard.context.get("previously_onboarded") and "mandate" in wizard.context.get("completed_steps", []):
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Mandate already issued in this workspace.[/]")
+        wizard.context["first_mandate"] = {"_existing": True}
+        return wizard.context["first_mandate"]
+    
     # Check dependency: policy must be created first
     policy_info = wizard.context.get("first_policy")
     if not policy_info:
@@ -1048,6 +1071,12 @@ def _step_validate(wizard: Wizard) -> Any:
     """Step 6: Validate mandate demo."""
     console = wizard.console
     prompt = FlowPrompt(console)
+    
+    # ── Existing workspace that was previously onboarded: skip ──
+    if wizard.context.get("previously_onboarded") and "validate" in wizard.context.get("completed_steps", []):
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Validation already completed in this workspace.[/]")
+        wizard.context["validate_demo"] = False
+        return True
     
     # Check dependency: mandate must be issued first
     mandate_info = wizard.context.get("first_mandate")
@@ -1176,7 +1205,7 @@ def run_onboarding(
     try:
         from pathlib import Path
         from caracal.config import load_config
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager, get_db_manager
         from caracal.db.models import Principal, AuthorityPolicy
         from datetime import datetime
         from uuid import uuid4
@@ -1187,6 +1216,11 @@ def run_onboarding(
         
         # Save database configuration if provided
         db_config_data = results.get("database")
+        workspace_name = wizard.context.get("workspace_name", "default")
+        # Derive a safe PostgreSQL schema name from the workspace name
+        import re as _re
+        workspace_schema = "ws_" + _re.sub(r"[^a-z0-9_]", "_", workspace_name.lower())
+        
         if db_config_data and isinstance(db_config_data, dict) and db_config_data.get("type") == "postgresql":
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Saving database configuration...[/]")
@@ -1201,7 +1235,7 @@ def run_onboarding(
                 with open(config_file, 'r') as f:
                     config_yaml = yaml.safe_load(f) or {}
                 
-                # Update database section
+                # Update database section — include schema for workspace isolation
                 config_yaml['database'] = {
                     'type': 'postgres',
                     'host': db_config_data['host'],
@@ -1209,80 +1243,96 @@ def run_onboarding(
                     'database': db_config_data['database'],
                     'user': db_config_data['username'],
                     'password': db_config_data['password'],
+                    'schema': workspace_schema,
                 }
                 
                 with open(config_file, 'w') as f:
                     yaml.dump(config_yaml, f, default_flow_style=False)
                 
                 console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL configuration saved to config.yaml[/]")
+                console.print(f"  [{Colors.DIM}]Schema: {workspace_schema}[/]")
                 
                 # Reload config
                 config = load_config()
-        elif db_config_data == "file":
-            console.print()
-            console.print(f"  [{Colors.INFO}]{Icons.INFO} Using SQLite (file-based storage)[/]")
         
-        # Setup database connection - prioritize wizard results over existing config
-        # This logic is fail-safe: it always defaults to a working SQLite configuration
-        if db_config_data == "file":
-            # User explicitly selected SQLite in wizard (or auto-fallback occurred)
-            db_file_path = wizard.context.get("database_file_path", str(get_workspace().db_path))
-            db_config = DatabaseConfig(
-                type='sqlite',
-                file_path=db_file_path,
-            )
-        elif isinstance(db_config_data, dict) and db_config_data.get("type") == "postgresql":
+        # Setup database connection — PostgreSQL only
+        if isinstance(db_config_data, dict) and db_config_data.get("type") == "postgresql":
             # PostgreSQL was successfully configured in wizard
             db_config = DatabaseConfig(
-                type='postgresql',
                 host=db_config_data.get('host', 'localhost'),
                 port=int(db_config_data.get('port', 5432)),
                 database=db_config_data.get('database', 'caracal'),
                 user=db_config_data.get('username', 'caracal'),
                 password=db_config_data.get('password', ''),
+                schema=workspace_schema,
             )
         elif hasattr(config, 'database') and config.database:
-            # Fall back to existing config if wizard didn't complete
+            # Fall back to existing config if wizard didn't produce new data
             db_config = DatabaseConfig(
-                type=getattr(config.database, 'type', 'sqlite'),
                 host=getattr(config.database, 'host', 'localhost'),
                 port=getattr(config.database, 'port', 5432),
                 database=getattr(config.database, 'database', 'caracal'),
                 user=getattr(config.database, 'user', 'caracal'),
                 password=getattr(config.database, 'password', ''),
-                file_path=getattr(config.database, 'file_path', str(get_workspace().db_path)),
+                schema=getattr(config.database, 'schema', workspace_schema),
             )
         else:
-            # Final fallback: always works with SQLite
-            db_config = DatabaseConfig(
-                type='sqlite',
-                file_path=str(get_workspace().db_path),
-            )
+            # Use env-var-based defaults via get_db_manager()
+            db_config = DatabaseConfig(schema=workspace_schema)
         
-        # Initialize database — NO silent fallback to SQLite when PostgreSQL was chosen
-        try:
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
-            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database initialized successfully[/]")
-        except Exception as e:
-            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Database initialization failed: {e}[/]")
-            
-            if db_config.type in ('postgresql', 'postgres'):
-                # PostgreSQL was explicitly chosen — do NOT fall back to SQLite
-                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} CRITICAL: PostgreSQL initialization failed.[/]")
-                console.print(f"  [{Colors.DIM}]PostgreSQL was selected as the database backend.[/]")
-                console.print(f"  [{Colors.DIM}]Caracal will NOT silently fall back to SQLite.[/]")
-                console.print(f"  [{Colors.DIM}]Please fix PostgreSQL and run onboarding again.[/]")
+        # Initialize database — try to connect, auto-start PostgreSQL if needed
+        db_manager = None
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            try:
+                db_manager = DatabaseConnectionManager(db_config)
+                db_manager.initialize()
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database initialized successfully[/]")
+                break
+            except Exception as e:
+                err_str = str(e).lower()
+                is_connection_error = (
+                    "connection refused" in err_str
+                    or "could not connect" in err_str
+                    or "no password supplied" in err_str
+                    or "operationalerror" in err_str
+                )
+                
+                if is_connection_error and attempt < max_attempts:
+                    console.print()
+                    console.print(f"  [{Colors.WARNING}]{Icons.WARNING} PostgreSQL is not reachable. Attempting to start it automatically...[/]")
+                    start_ok, start_msg = _start_postgresql(console)
+                    if start_ok:
+                        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} {start_msg}[/]")
+                        console.print(f"  [{Colors.INFO}]{Icons.INFO} Retrying database connection...[/]")
+                        continue
+                    else:
+                        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Could not auto-start PostgreSQL: {start_msg}[/]")
+                
+                # Final failure — show a clean error, not a massive traceback
                 console.print()
-                console.print(f"  [{Colors.INFO}]{Icons.INFO} Error details: {e}[/]")
-                raise RuntimeError(
-                    f"PostgreSQL initialization failed: {e}\n"
-                    f"Fix PostgreSQL and re-run onboarding. No SQLite fallback when PostgreSQL is selected."
-                ) from e
-            else:
-                # SQLite failed — this is critical
-                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} CRITICAL: Failed to initialize SQLite database[/]")
-                raise RuntimeError(f"SQLite database initialization failed: {e}") from e
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Database initialization failed.[/]")
+                console.print()
+                
+                # Show helpful diagnostics
+                if "connection refused" in err_str:
+                    console.print(f"  [{Colors.INFO}]PostgreSQL is not running. Start it with:[/]")
+                    console.print(f"    [{Colors.DIM}]docker compose up -d postgres[/]")
+                    console.print(f"    [{Colors.DIM}]sudo systemctl start postgresql[/]")
+                elif "password" in err_str or "authentication" in err_str:
+                    console.print(f"  [{Colors.INFO}]Authentication failed. Check your .env credentials:[/]")
+                    console.print(f"    [{Colors.DIM}]DB_USER, DB_PASSWORD in .env[/]")
+                elif "does not exist" in err_str:
+                    console.print(f"  [{Colors.INFO}]Database or role missing. Create them with:[/]")
+                    console.print(f"    [{Colors.DIM}]createdb caracal && createuser caracal[/]")
+                else:
+                    console.print(f"  [{Colors.DIM}]Error: {e}[/]")
+                
+                console.print()
+                console.print(f"  [{Colors.HINT}]Fix the issue and re-run onboarding.[/]")
+                console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+                input()
+                return results
         
         # Only clean database if explicitly requested or if it's a new workspace with fresh start
         # Do NOT clean database if it was auto-configured from .env without user confirmation
@@ -1306,7 +1356,7 @@ def run_onboarding(
         principal_data = results.get("principal")
         principal_id = None
         
-        if principal_data:
+        if principal_data and not principal_data.get("_existing"):
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Finalizing setup...[/]")
             
@@ -1340,7 +1390,7 @@ def run_onboarding(
         
         # Handle Authority Policy Creation
         policy_data = results.get("policy")
-        if policy_data and principal_id:
+        if policy_data and not policy_data.get("_existing") and principal_id:
             try:
                 with db_manager.session_scope() as db_session:
                     # Check if a policy already exists for this principal
@@ -1372,12 +1422,13 @@ def run_onboarding(
                 console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to create policy: {e}[/]")
         
         # Close database connection
-        db_manager.close()
+        if db_manager:
+            db_manager.close()
                 
     except Exception as e:
-        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error saving configuration: {e}[/]")
-        import traceback
-        traceback.print_exc()
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error during configuration: {e}[/]")
+        import logging
+        logging.getLogger(__name__).debug("Onboarding config error", exc_info=True)
 
     # Update state
     if state:
@@ -1415,9 +1466,6 @@ def _show_next_steps(console: Console, results: dict, context: dict) -> None:
     
     if results.get("mandate") is None:
         todos.append(("Issue an execution mandate", "caracal authority issue --issuer-id <uuid> --subject-id <uuid>"))
-    
-    if results.get("database") == "file":
-        todos.append(("Consider PostgreSQL for production", "Set database.type: postgresql in config.yaml"))
     
     # Always suggest viewing the ledger
     todos.append(("Explore your authority ledger", "caracal authority-ledger query"))

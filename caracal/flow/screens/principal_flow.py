@@ -76,22 +76,10 @@ class PrincipalFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import Principal, AuthorityPolicy, ExecutionMandate
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 principals = db_session.query(Principal).all()
@@ -148,12 +136,9 @@ class PrincipalFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import Principal
             from datetime import datetime
-            
-            config = load_config()
             
             # Collect information
             name = self.prompt.text(
@@ -188,16 +173,7 @@ class PrincipalFlow:
             self.console.print()
             self.console.print(f"  [{Colors.INFO}]Creating principal...[/]")
             
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 principal = Principal(
@@ -235,22 +211,10 @@ class PrincipalFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import Principal, AuthorityPolicy, ExecutionMandate
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 principals = db_session.query(Principal).all()
@@ -321,24 +285,12 @@ class PrincipalFlow:
         self.console.print()
         
         try:
-            from caracal.config import load_config
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.db.connection import get_db_manager
             from caracal.db.models import Principal
             from cryptography.hazmat.primitives.asymmetric import ec
             from cryptography.hazmat.primitives import serialization
             
-            config = load_config()
-            
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
                 principals = db_session.query(Principal).all()
