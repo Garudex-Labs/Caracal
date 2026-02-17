@@ -26,8 +26,6 @@ class HealthEndpoints:
     Provides /health endpoint that checks:
     - Database connectivity
     - Redis connectivity (if configured)
-    - Kafka connectivity (if configured)
-    
     Requirements: 15.8
     """
     
@@ -36,8 +34,6 @@ class HealthEndpoints:
         service_name: str,
         service_version: str,
         db_connection_manager: Optional[Any] = None,
-        kafka_producer: Optional[Any] = None,
-        kafka_consumer: Optional[Any] = None,
         redis_client: Optional[Any] = None
     ):
         """
@@ -47,8 +43,6 @@ class HealthEndpoints:
             service_name: Name of the service (e.g., "gateway", "ledger-writer")
             service_version: Version of the service
             db_connection_manager: Optional database connection manager
-            kafka_producer: Optional Kafka producer
-            kafka_consumer: Optional Kafka consumer
             redis_client: Optional Redis client
         """
         self.service_name = service_name
@@ -57,8 +51,6 @@ class HealthEndpoints:
             service_name=service_name,
             service_version=service_version,
             db_connection_manager=db_connection_manager,
-            kafka_producer=kafka_producer,
-            kafka_consumer=kafka_consumer,
             redis_client=redis_client
         )
         logger.info(f"HealthEndpoints initialized for {service_name} v{service_version}")

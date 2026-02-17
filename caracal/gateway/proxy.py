@@ -1,5 +1,5 @@
 """
-Gateway Proxy server for Caracal Core v0.2.
+Gateway Proxy server for Caracal Core.
 
 Provides network-enforced policy enforcement through:
 - HTTP/gRPC reverse proxy for intercepting API calls
@@ -7,7 +7,7 @@ Provides network-enforced policy enforcement through:
 - Policy evaluation before forwarding requests
 - Replay protection
 - Request forwarding to target APIs
-- Metering event emission for enterprise usage tracking
+- Metering event emission for usage tracking
 
 Requirements: 1.1, 1.2, 1.6
 """
@@ -29,7 +29,6 @@ from caracal.gateway.auth import Authenticator, AuthenticationMethod, Authentica
 from caracal.gateway.replay_protection import ReplayProtection, ReplayCheckResult
 from caracal.core.authority import AuthorityEvaluator
 from caracal.core.metering import MeteringCollector
-from caracal.kafka.producer import KafkaEventProducer
 from caracal.core.error_handling import (
     get_error_handler,
     handle_error_with_denial,
@@ -66,7 +65,6 @@ class GatewayConfig:
         timestamp_window_seconds: Maximum timestamp age in seconds (default: 300)
         request_timeout_seconds: Timeout for forwarded requests (default: 30)
         max_request_size_mb: Maximum request body size in MB (default: 10)
-        enable_kafka: Enable Kafka event publishing (default: False for v0.2 compatibility)
     """
     listen_address: str = "0.0.0.0:8443"
     tls_cert_file: Optional[str] = None
@@ -81,7 +79,6 @@ class GatewayConfig:
     timestamp_window_seconds: int = 300
     request_timeout_seconds: int = 30
     max_request_size_mb: int = 10
-    enable_kafka: bool = False
 
 
 class GatewayProxy:
@@ -103,7 +100,6 @@ class GatewayProxy:
         metering_collector: MeteringCollector,
         replay_protection: Optional[ReplayProtection] = None,
         db_connection_manager: Optional[Any] = None,
-        kafka_producer: Optional[KafkaEventProducer] = None,
         allowlist_manager: Optional[Any] = None
     ):
         """
@@ -116,8 +112,7 @@ class GatewayProxy:
             metering_collector: MeteringCollector for usage tracking
             replay_protection: Optional ReplayProtection for replay attack prevention
             db_connection_manager: Optional DatabaseConnectionManager for health checks
-            kafka_producer: Optional KafkaEventProducer for v0.3 event publishing
-            allowlist_manager: Optional AllowlistManager for resource access control (v0.3)
+            allowlist_manager: Optional AllowlistManager for resource access control
         """
         self.config = config
         self.authenticator = authenticator
@@ -125,7 +120,6 @@ class GatewayProxy:
         self.metering_collector = metering_collector
         self.replay_protection = replay_protection
         self.db_connection_manager = db_connection_manager
-        self.kafka_producer = kafka_producer
         self.allowlist_manager = allowlist_manager
         
         # Create FastAPI app
@@ -156,8 +150,7 @@ class GatewayProxy:
         
         logger.info(
             f"Initialized GatewayProxy with auth_mode={config.auth_mode}, "
-            f"replay_protection={replay_protection is not None}, "
-            f"kafka_enabled={config.enable_kafka}"
+            f"replay_protection={replay_protection is not None}"
         )
     
     def _register_routes(self):
@@ -170,7 +163,6 @@ class GatewayProxy:
             
             Checks:
             - Database connectivity (if db_connection_manager provided)
-            - Kafka connectivity (if kafka_producer provided)
             - Redis connectivity (if redis_client provided)
             
             Returns:
@@ -186,7 +178,6 @@ class GatewayProxy:
                 service_name="caracal-gateway-proxy",
                 service_version=__version__,
                 db_connection_manager=self.db_connection_manager,
-                kafka_producer=self.kafka_producer,
                 redis_client=getattr(self, 'redis_client', None)
             )
             
@@ -502,67 +493,21 @@ class GatewayProxy:
                 response_size_bytes = len(response.content)
                 quantity = Decimal("1") # Count as 1 call by default
                 
-                # v0.5: Publish metering event to Kafka if enabled
-                if self.config.enable_kafka and self.kafka_producer:
-                    try:
-                        await self.kafka_producer.publish_metering_event(
-                            agent_id=str(agent.agent_id),
-                            resource_type=resource_type,
-                            quantity=quantity,
-                            metadata={
-                                "method": request.method,
-                                "path": path,
-                                "target_url": target_url,
-                                "status_code": str(response.status_code),
-                                "response_size_bytes": str(response_size_bytes),
-                                "mandate_id": str(mandate_id)
-                            },
-                            timestamp=datetime.utcnow()
-                        )
-                        
-                        logger.info(
-                            f"Published metering event to Kafka: agent={agent.agent_id}, "
-                            f"resource={resource_type}"
-                        )
-                    except Exception as kafka_error:
-                        logger.error(f"Failed to publish Kafka event: {kafka_error}")
-                        # Fallback to direct collection logic if needed, or just log error
-                        # For now, we'll try direct collection via metering_collector
-                        
-                        metering_event = MeteringEvent(
-                            agent_id=str(agent.agent_id),
-                            resource_type=resource_type,
-                            quantity=quantity,
-                            timestamp=datetime.utcnow(),
-                            metadata={
-                                "method": request.method,
-                                "path": path,
-                                "target_url": target_url,
-                                "status_code": str(response.status_code),
-                                "response_size_bytes": str(response_size_bytes),
-                                "mandate_id": str(mandate_id)
-                            }
-                        )
-                        self.metering_collector.collect_event(metering_event)
-
-                else:
-                    # Direct collection
-                    metering_event = MeteringEvent(
-                        agent_id=str(agent.agent_id),
-                        resource_type=resource_type,
-                        quantity=quantity,
-                        timestamp=datetime.utcnow(),
-                        metadata={
-                            "method": request.method,
-                            "path": path,
-                            "target_url": target_url,
-                            "status_code": str(response.status_code),
-                            "response_size_bytes": str(response_size_bytes),
-                            "mandate_id": str(mandate_id)
-                        }
-                    )
-                    
-                    self.metering_collector.collect_event(metering_event)
+                metering_event = MeteringEvent(
+                    agent_id=str(agent.agent_id),
+                    resource_type=resource_type,
+                    quantity=quantity,
+                    timestamp=datetime.utcnow(),
+                    metadata={
+                        "method": request.method,
+                        "path": path,
+                        "target_url": target_url,
+                        "status_code": str(response.status_code),
+                        "response_size_bytes": str(response_size_bytes),
+                        "mandate_id": str(mandate_id)
+                    }
+                )
+                self.metering_collector.collect_event(metering_event)
                 
                 logger.info(
                     f"Emitted metering event for agent {agent.agent_id}, "
