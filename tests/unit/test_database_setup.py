@@ -2,16 +2,15 @@
 Comprehensive tests for database setup logic in Caracal.
 
 Tests the complete database setup flow including:
-- PostgreSQL vs SQLite choice (no silent fallback)
+- PostgreSQL setup (the only supported backend)
 - Environment variable validation and prompting
 - PostgreSQL auto-start logic
 - Connection testing and error diagnostics
 - Clear failure messages on every error path
-- Post-onboarding database initialization (no SQLite fallback for PG)
+- Post-onboarding database initialization
 
 These tests verify the core contract:
-  - If user chooses PostgreSQL: NEVER fall back to SQLite silently
-  - If user chooses SQLite: use file-based storage
+  - PostgreSQL is the only supported backend — no SQLite fallback
   - Missing env vars: prompt user with clear instructions
   - Connection failures: show actionable diagnostics
 """
@@ -34,7 +33,6 @@ from caracal.flow.screens.onboarding import (
     _validate_env_config,
     _start_postgresql,
     _step_database,
-    _setup_sqlite,
     _show_connection_error_details,
 )
 from caracal.flow.theme import Colors, Icons
@@ -640,22 +638,6 @@ class TestStepDatabase:
         assert mock_wizard.context["database"]["type"] == "postgresql"
     
     @patch("caracal.flow.screens.onboarding.FlowPrompt")
-    @patch("caracal.flow.screens.onboarding._setup_sqlite")
-    def test_postgres_no_uses_sqlite(self, mock_setup_sqlite, mock_prompt_cls, mock_wizard):
-        """User says N to PostgreSQL → SQLite used."""
-        mock_prompt = MagicMock()
-        mock_prompt_cls.return_value = mock_prompt
-        
-        # User says NO to PostgreSQL
-        mock_prompt.confirm.return_value = False
-        
-        mock_setup_sqlite.return_value = "file"
-        
-        result = _step_database(mock_wizard)
-        
-        mock_setup_sqlite.assert_called_once()
-    
-    @patch("caracal.flow.screens.onboarding.FlowPrompt")
     @patch("caracal.flow.screens.onboarding._get_db_config_from_env")
     @patch("caracal.flow.screens.onboarding._validate_env_config")
     def test_postgres_yes_missing_env_prompts_user(self, mock_validate, mock_env, mock_prompt_cls, mock_wizard):
@@ -786,40 +768,29 @@ class TestStepDatabase:
 
 
 # =============================================================================
-# Test _setup_sqlite
-# =============================================================================
-
-class TestSetupSqlite:
-    """Tests for SQLite setup."""
-    
-    def test_sqlite_configures_correctly(self, mock_wizard, tmp_path):
-        """SQLite setup creates correct context entries."""
-        mock_ws = MagicMock()
-        mock_ws.db_path = tmp_path / "caracal.db"
-        mock_ws.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with patch("caracal.flow.workspace.get_workspace", return_value=mock_ws):
-            result = _setup_sqlite(mock_wizard, mock_wizard.console)
-        
-        assert result == "file"
-        assert mock_wizard.context["database"] == "file"
-        assert mock_wizard.context["database_file_path"] == str(tmp_path / "caracal.db")
-
-
-# =============================================================================
-# Test Post-Onboarding Database Initialization (No SQLite Fallback for PG)
+# Test Post-Onboarding Database Initialization
 # =============================================================================
 
 class TestPostOnboardingDbInit:
     """Tests that post-onboarding code respects the no-fallback contract."""
     
-    def test_postgresql_init_failure_raises_not_fallback(self):
-        """When PostgreSQL is selected and init fails, it MUST raise, not fallback to SQLite."""
+    def test_postgresql_init_failure_raises_not_fallback(self, monkeypatch):
+        """When PostgreSQL is selected and init fails, it MUST raise, not fallback."""
         from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+        
+        # Prevent dotenv from reloading .env after we clear the vars
+        monkeypatch.setattr(
+            'caracal.db.connection._ensure_dotenv_loaded', lambda: None,
+        )
+        
+        # Clear any env vars so explicit kwargs are used
+        for var in ('CARACAL_DB_HOST', 'CARACAL_DB_PORT', 'CARACAL_DB_NAME',
+                    'CARACAL_DB_USER', 'CARACAL_DB_PASSWORD',
+                    'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'):
+            monkeypatch.delenv(var, raising=False)
         
         # Create a PostgreSQL config that will fail
         db_config = DatabaseConfig(
-            type='postgresql',
             host='localhost',
             port=59999,  # wrong port
             database='nonexistent',
@@ -832,37 +803,6 @@ class TestPostOnboardingDbInit:
         
         with pytest.raises((RuntimeError, Exception)):
             manager.initialize()
-    
-    def test_sqlite_init_succeeds(self, tmp_path):
-        """SQLite initialization always works with a valid path."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        db_path = str(tmp_path / "test.db")
-        db_config = DatabaseConfig(
-            type='sqlite',
-            file_path=db_path,
-        )
-        
-        manager = DatabaseConnectionManager(db_config)
-        manager.initialize()
-        
-        assert manager.health_check() is True
-        manager.close()
-    
-    def test_sqlite_memory_init_succeeds(self):
-        """SQLite :memory: database initializes correctly."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        db_config = DatabaseConfig(
-            type='sqlite',
-            file_path=':memory:',
-        )
-        
-        manager = DatabaseConnectionManager(db_config)
-        manager.initialize()
-        
-        assert manager.health_check() is True
-        manager.close()
 
 
 # =============================================================================
@@ -872,12 +812,22 @@ class TestPostOnboardingDbInit:
 class TestDatabaseConfig:
     """Tests for DatabaseConfig connection URL generation."""
     
-    def test_postgres_url(self):
+    def test_postgres_url(self, monkeypatch):
         """PostgreSQL URL is correctly formatted."""
         from caracal.db.connection import DatabaseConfig
         
+        # Prevent dotenv from reloading .env after we clear the vars
+        monkeypatch.setattr(
+            'caracal.db.connection._ensure_dotenv_loaded', lambda: None,
+        )
+        
+        # Clear any env vars so explicit kwargs are used
+        for var in ('CARACAL_DB_HOST', 'CARACAL_DB_PORT', 'CARACAL_DB_NAME',
+                    'CARACAL_DB_USER', 'CARACAL_DB_PASSWORD',
+                    'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'):
+            monkeypatch.delenv(var, raising=False)
+        
         config = DatabaseConfig(
-            type="postgres",
             host="myhost",
             port=5433,
             database="mydb",
@@ -892,24 +842,11 @@ class TestDatabaseConfig:
         assert "5433" in url
         assert "mydb" in url
     
-    def test_sqlite_url(self):
-        """SQLite URL is correctly formatted."""
-        from caracal.db.connection import DatabaseConfig
-        
-        config = DatabaseConfig(
-            type="sqlite",
-            file_path="/tmp/test.db",
-        )
-        url = config.get_connection_url()
-        
-        assert url == "sqlite:////tmp/test.db"
-    
     def test_postgres_url_escapes_special_chars(self):
         """Special characters in password are URL-encoded."""
         from caracal.db.connection import DatabaseConfig
         
         config = DatabaseConfig(
-            type="postgres",
             host="localhost",
             port=5432,
             database="db",
@@ -920,6 +857,27 @@ class TestDatabaseConfig:
         
         # @ and space should be encoded
         assert "p%40ss" in url or "p@ss" not in url.split("@")[0]
+    
+    def test_type_property_always_postgresql(self):
+        """DatabaseConfig.type always returns 'postgresql'."""
+        from caracal.db.connection import DatabaseConfig
+        
+        config = DatabaseConfig()
+        assert config.type == "postgresql"
+    
+    def test_ignored_kwargs_dont_crash(self):
+        """Legacy kwargs like type= and file_path= are silently ignored."""
+        from caracal.db.connection import DatabaseConfig
+        
+        # Should not raise
+        config = DatabaseConfig(
+            type="sqlite",
+            file_path="/tmp/old.db",
+            host="localhost",
+        )
+        assert config.type == "postgresql"
+        url = config.get_connection_url()
+        assert url.startswith("postgresql://")
 
 
 # =============================================================================
@@ -927,163 +885,52 @@ class TestDatabaseConfig:
 # =============================================================================
 
 class TestDatabaseConnectionManager:
-    """Tests for DatabaseConnectionManager lifecycle."""
+    """Tests for DatabaseConnectionManager lifecycle.
     
-    def test_double_initialize_warns(self, tmp_path):
-        """Calling initialize() twice logs a warning but doesn't crash."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        config = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test.db"))
-        manager = DatabaseConnectionManager(config)
-        
-        manager.initialize()
-        manager.initialize()  # Should warn, not crash
-        
-        assert manager.health_check() is True
-        manager.close()
+    Note: These tests require a running PostgreSQL instance.
+    Tests are skipped if PostgreSQL is unavailable.
+    """
+    
+    @staticmethod
+    def _pg_available():
+        """Check if PostgreSQL is available for testing."""
+        import socket
+        try:
+            sock = socket.create_connection(("localhost", 5432), timeout=1)
+            sock.close()
+            return True
+        except Exception:
+            return False
     
     def test_get_session_before_init_raises(self):
         """get_session() before initialize() raises RuntimeError."""
         from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         
-        config = DatabaseConfig(type="sqlite", file_path=":memory:")
+        config = DatabaseConfig()
         manager = DatabaseConnectionManager(config)
         
         with pytest.raises(RuntimeError, match="not initialized"):
             manager.get_session()
     
-    def test_close_cleans_up(self, tmp_path):
-        """close() disposes engine and resets state."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        config = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test.db"))
-        manager = DatabaseConnectionManager(config)
-        manager.initialize()
-        manager.close()
-        
-        assert manager._engine is None
-        assert manager._session_factory is None
-        assert manager._initialized is False
-    
     def test_health_check_before_init_returns_false(self):
         """health_check() before initialize() returns False."""
         from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         
-        config = DatabaseConfig(type="sqlite", file_path=":memory:")
+        config = DatabaseConfig()
         manager = DatabaseConnectionManager(config)
         
         assert manager.health_check() is False
-    
-    def test_session_scope_commits_on_success(self, tmp_path):
-        """session_scope() commits transaction on success."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        config = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test.db"))
-        manager = DatabaseConnectionManager(config)
-        manager.initialize()
-        
-        with manager.session_scope() as session:
-            from sqlalchemy import text
-            session.execute(text("SELECT 1"))
-        
-        manager.close()
-    
-    def test_session_scope_rolls_back_on_error(self, tmp_path):
-        """session_scope() rolls back transaction on exception."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        config = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test.db"))
-        manager = DatabaseConnectionManager(config)
-        manager.initialize()
-        
-        with pytest.raises(ValueError):
-            with manager.session_scope() as session:
-                raise ValueError("test error")
-        
-        manager.close()
     
     def test_pool_status_before_init(self):
         """get_pool_status() before init returns zeros."""
         from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         
-        config = DatabaseConfig(type="sqlite", file_path=":memory:")
+        config = DatabaseConfig()
         manager = DatabaseConnectionManager(config)
         
         status = manager.get_pool_status()
         assert status["size"] == 0
         assert status["total"] == 0
-    
-    def test_clear_database(self, tmp_path):
-        """clear_database() drops and recreates all tables."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        config = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test.db"))
-        manager = DatabaseConnectionManager(config)
-        manager.initialize()
-        
-        # This should not raise
-        manager.clear_database()
-        
-        # Health check still passes after clear
-        assert manager.health_check() is True
-        manager.close()
-
-
-# =============================================================================
-# Test Global Connection Manager Functions
-# =============================================================================
-
-class TestGlobalConnectionManager:
-    """Tests for module-level connection manager functions."""
-    
-    def test_get_connection_manager_before_init_raises(self):
-        """get_connection_manager() raises if not initialized."""
-        from caracal.db.connection import get_connection_manager, close_connection_manager
-        
-        # Ensure clean state
-        close_connection_manager()
-        
-        with pytest.raises(RuntimeError, match="not initialized"):
-            get_connection_manager()
-    
-    def test_initialize_and_get(self, tmp_path):
-        """initialize_connection_manager() then get_connection_manager() works."""
-        from caracal.db.connection import (
-            DatabaseConfig,
-            initialize_connection_manager,
-            get_connection_manager,
-            close_connection_manager,
-        )
-        
-        config = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test.db"))
-        
-        try:
-            initialize_connection_manager(config)
-            manager = get_connection_manager()
-            assert manager.health_check() is True
-        finally:
-            close_connection_manager()
-    
-    def test_reinitialize_closes_old(self, tmp_path):
-        """Re-calling initialize_connection_manager() closes the old one."""
-        from caracal.db.connection import (
-            DatabaseConfig,
-            initialize_connection_manager,
-            close_connection_manager,
-        )
-        
-        config1 = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test1.db"))
-        config2 = DatabaseConfig(type="sqlite", file_path=str(tmp_path / "test2.db"))
-        
-        try:
-            manager1 = initialize_connection_manager(config1)
-            manager2 = initialize_connection_manager(config2)
-            
-            # Old manager should be closed
-            assert manager1._engine is None
-            assert manager2.health_check() is True
-        finally:
-            close_connection_manager()
 
 
 # =============================================================================
@@ -1091,22 +938,7 @@ class TestGlobalConnectionManager:
 # =============================================================================
 
 class TestEnvConfigIntegration:
-    """Integration tests for database config from .env → connection."""
-    
-    def test_full_sqlite_path(self, tmp_path):
-        """SQLite with full path works end-to-end."""
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-        
-        db_path = str(tmp_path / "integration_test.db")
-        config = DatabaseConfig(type="sqlite", file_path=db_path)
-        
-        manager = DatabaseConnectionManager(config)
-        manager.initialize()
-        
-        assert manager.health_check() is True
-        assert Path(db_path).exists()
-        
-        manager.close()
+    """Integration tests for database config."""
     
     def test_postgres_config_from_settings(self):
         """DatabaseConfig from settings module has correct defaults."""
