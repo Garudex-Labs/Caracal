@@ -7,57 +7,6 @@
 # Requirements: 24.1, 24.5, Deployment
 
 groups:
-  - name: caracal_kafka_alerts
-    interval: 30s
-    rules:
-      # Alert when Kafka consumer lag exceeds threshold
-      - alert: KafkaConsumerLagHigh
-        expr: caracal_kafka_consumer_lag > 10000
-        for: 5m
-        labels:
-          severity: warning
-          component: kafka-consumer
-        annotations:
-          summary: "Kafka consumer lag is high"
-          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} partition {{ $labels.partition }} has lag of {{ $value }} messages (threshold: 10000)"
-          runbook: "Check consumer processing speed, scale consumers if needed, investigate errors in consumer logs"
-      
-      # Alert when Kafka consumer lag is critically high
-      - alert: KafkaConsumerLagCritical
-        expr: caracal_kafka_consumer_lag > 50000
-        for: 2m
-        labels:
-          severity: critical
-          component: kafka-consumer
-        annotations:
-          summary: "Kafka consumer lag is critically high"
-          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} partition {{ $labels.partition }} has lag of {{ $value }} messages (threshold: 50000)"
-          runbook: "URGENT: Scale consumers immediately, check for consumer errors, investigate database performance"
-      
-      # Alert when Kafka consumer has high error rate
-      - alert: KafkaConsumerErrorRateHigh
-        expr: rate(caracal_kafka_consumer_errors_total[5m]) > 10
-        for: 2m
-        labels:
-          severity: warning
-          component: kafka-consumer
-        annotations:
-          summary: "Kafka consumer error rate is high"
-          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} has error rate of {{ $value }} errors/sec (threshold: 10/sec)"
-          runbook: "Check consumer logs for error patterns, investigate database connectivity, check DLQ for failed messages"
-      
-      # Alert when Kafka message processing is slow
-      - alert: KafkaMessageProcessingSlow
-        expr: histogram_quantile(0.99, rate(caracal_kafka_message_processing_duration_seconds_bucket[5m])) > 1.0
-        for: 5m
-        labels:
-          severity: warning
-          component: kafka-consumer
-        annotations:
-          summary: "Kafka message processing is slow"
-          description: "Consumer group {{ $labels.consumer_group }} on topic {{ $labels.topic }} has p99 processing time of {{ $value }}s (threshold: 1s)"
-          runbook: "Check database query performance, investigate slow operations in consumer logs, consider scaling consumers"
-
   - name: caracal_dlq_alerts
     interval: 30s
     rules:

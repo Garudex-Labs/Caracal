@@ -58,14 +58,6 @@ route:
       repeat_interval: 15m
       continue: true
     
-    # Kafka alerts
-    - match:
-        component: kafka-consumer
-      receiver: 'kafka-team'
-      group_wait: 1m
-      group_interval: 5m
-      repeat_interval: 2h
-    
     # Database alerts
     - match:
         component: database
@@ -114,13 +106,6 @@ inhibit_rules:
       component: 'database'
     equal: ['component']
   
-  # Inhibit consumer lag alerts if consumer has high error rate
-  - source_match:
-      alertname: 'KafkaConsumerErrorRateHigh'
-    target_match:
-      alertname: 'KafkaConsumerLagHigh'
-    equal: ['consumer_group', 'topic']
-
 # Receivers - notification channels
 receivers:
   # Default receiver - email to ops team
@@ -200,21 +185,6 @@ receivers:
           *Runbook:* {{ range .Alerts }}{{ .Annotations.runbook }}{{ end }}
           @security-oncall IMMEDIATE ACTION REQUIRED
         color: 'danger'
-  
-  # Kafka team
-  - name: 'kafka-team'
-    email_configs:
-      - to: 'kafka-team@example.com'
-        headers:
-          Subject: '[Caracal Kafka] {{ .GroupLabels.alertname }}'
-    
-    slack_configs:
-      - api_url: 'SLACK_WEBHOOK_URL'
-        channel: '#caracal-kafka-alerts'
-        title: '{{ .GroupLabels.alertname }}'
-        text: |
-          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
-          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
   
   # Database team
   - name: 'database-team'
