@@ -67,7 +67,11 @@ class WorkspaceManager:
 
     @property
     def db_path(self) -> Path:
-        """Path to ``caracal.db`` (SQLite fallback)."""
+        """Legacy property — SQLite is no longer supported.
+
+        Retained only so callers that check file existence don't crash.
+        The returned path will typically not exist.
+        """
         return self._root / "caracal.db"
 
     @property
@@ -173,6 +177,7 @@ class WorkspaceManager:
             True if workspace was deleted, False otherwise
         """
         import shutil
+        import re as _re
         
         rp = registry_path or _REGISTRY_PATH
         if not rp.exists():
@@ -185,12 +190,52 @@ class WorkspaceManager:
         # Find and remove by resolved path
         resolved = str(Path(path).resolve())
         original_count = len(workspaces)
-        workspaces = [
-            w for w in workspaces
-            if str(Path(w["path"]).resolve()) != resolved
-        ]
+        removed_ws = None
+        remaining = []
+        for w in workspaces:
+            if str(Path(w["path"]).resolve()) == resolved:
+                removed_ws = w
+            else:
+                remaining.append(w)
+        workspaces = remaining
 
         if len(workspaces) < original_count:
+            # Drop the workspace's PostgreSQL schema before removing files
+            if removed_ws:
+                ws_name = removed_ws.get("name", "")
+                schema_name = "ws_" + _re.sub(r"[^a-z0-9_]", "_", ws_name.lower())
+                try:
+                    from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+                    # Try to read DB credentials from the workspace's own config.yaml
+                    ws_config_file = Path(removed_ws["path"]) / "config.yaml"
+                    db_kwargs = {}
+                    if ws_config_file.exists():
+                        try:
+                            import yaml
+                            with open(ws_config_file, "r") as _f:
+                                _cfg = yaml.safe_load(_f) or {}
+                            _db = _cfg.get("database", {})
+                            db_kwargs = {
+                                "host": _db.get("host", "localhost"),
+                                "port": int(_db.get("port", 5432)),
+                                "database": _db.get("database", "caracal"),
+                                "user": _db.get("user", "caracal"),
+                                "password": _db.get("password", ""),
+                            }
+                        except Exception:
+                            pass
+                    # DatabaseConfig will also check env vars as fallback
+                    db_config = DatabaseConfig(**db_kwargs)
+                    mgr = DatabaseConnectionManager(db_config)
+                    mgr.initialize()
+                    mgr.drop_schema(schema_name=schema_name)
+                    mgr.close()
+                except Exception as _e:
+                    import logging as _log
+                    _log.getLogger(__name__).warning(
+                        "Failed to drop schema %s: %s", schema_name, _e
+                    )
+            
             # Save updated registry
             with open(rp, "w") as fh:
                 json.dump({"workspaces": workspaces}, fh, indent=2)

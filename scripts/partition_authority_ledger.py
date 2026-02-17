@@ -20,8 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import text
 
-from caracal.config.settings import load_config
-from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+from caracal.db.connection import DatabaseConnectionManager, get_db_manager
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -245,28 +244,12 @@ def main():
     """Main function to run partitioning migration."""
     logger.info("Starting authority_ledger_events partitioning migration")
     
-    # Load configuration
-    try:
-        config = load_config()
-        db_config = DatabaseConfig(
-            type=config.database.type,
-            host=config.database.host,
-            port=config.database.port,
-            database=config.database.database,
-            user=config.database.user,
-            password=config.database.password,
-            file_path=config.database.file_path,
-            pool_size=config.database.pool_size,
-            max_overflow=config.database.max_overflow,
-            pool_timeout=config.database.pool_timeout
-        )
-    except Exception as e:
-        logger.error(f"Failed to load configuration: {e}", exc_info=True)
-        return 1
-    
     # Initialize database connection
-    db_manager = DatabaseConnectionManager(db_config)
-    db_manager.initialize()
+    try:
+        db_manager = get_db_manager()
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}", exc_info=True)
+        return 1
     
     try:
         # Step 1: Create partitioned table
