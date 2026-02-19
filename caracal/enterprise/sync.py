@@ -227,25 +227,51 @@ def _load_local_mandates() -> List[Dict[str, Any]]:
             mgr = DatabaseConnectionManager(db_config)
             mgr.initialize()
             with mgr.session_scope() as session:
+                # Note: schema may not have an `intent` JSON column; newer schema
+                # stores only an `intent_hash`. Select existing columns and
+                # include `intent_hash` instead of `intent` to remain compatible
+                # with both older and newer DB versions.
                 rows = session.execute(
                     text(
                         f'SELECT mandate_id, issuer_id, subject_id, resource_scope, '
-                        f'action_scope, valid_until, intent FROM "{schema}".execution_mandates'
+                        f'action_scope, valid_from, valid_until, intent_hash, parent_mandate_id, revoked '
+                        f'FROM "{schema}".execution_mandates'
                     )
                 ).fetchall()
             mgr.close()
-            return [
-                {
+            results = []
+            for r in rows:
+                # r indices based on SELECT above
+                # 0: mandate_id, 1: issuer_id, 2: subject_id,
+                # 3: resource_scope, 4: action_scope,
+                # 5: valid_from, 6: valid_until, 7: intent_hash,
+                # 8: parent_mandate_id, 9: revoked
+                valid_from = r[5]
+                valid_until = r[6]
+                # Compute validity_seconds if possible
+                validity_seconds = 3600
+                try:
+                    if valid_from and valid_until:
+                        validity_seconds = int((valid_until - valid_from).total_seconds())
+                        if validity_seconds < 0:
+                            validity_seconds = 3600
+                except Exception:
+                    validity_seconds = 3600
+
+                results.append({
                     "mandate_id": str(r[0]),
                     "issuer_id": str(r[1]),
                     "subject_id": str(r[2]),
                     "resource_scope": r[3] if r[3] else ["*"],
                     "action_scope": r[4] if r[4] else ["*"],
-                    "validity_seconds": 3600,  # default
-                    "intent": r[6] if r[6] else None,
-                }
-                for r in rows
-            ]
+                    "validity_seconds": validity_seconds,
+                    # We don't have full intent payload in newer schemas; send None
+                    "intent": None,
+                    "parent_mandate_id": str(r[8]) if r[8] else None,
+                    "revoked": bool(r[9]) if r[9] is not None else False,
+                })
+
+            return results
     except Exception as exc:
         logger.debug("Could not load mandates from DB: %s", exc)
 
