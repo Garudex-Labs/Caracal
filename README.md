@@ -28,117 +28,79 @@
 
 ## Overview
 
-**Caracal** is a pre-execution authority enforcement system for AI agents and automated software operating in production environments. It exists at the exact boundary where decisions turn into irreversible actions—API calls, database writes, deployments, or workflow triggers. 
+**Caracal** is a pre-execution authority enforcement system for AI agents and automated software operating in production environments. It exists at the boundary where autonomous decisions turn into irreversible actions—API calls, database writes, or system triggers.
 
-Instead of relying on broad roles or static API keys, Caracal enforces the **principle of explicit authority**: no action executes unless there is a cryptographically verified, time-bound mandate issued under a governing policy.
-
----
-
-## Quickstart
-
-Caracal offers two distinct interfaces for managing authority.
-
-### 1. Caracal Flow (TUI)
-
-**Target:** Security Teams, Governance Officers, and Developers.
-
-Caracal Flow is an interactive terminal interface for onboarding, monitoring authority ledgers, and managing infrastructure. It includes an **Onboarding Wizard** to help you configure your first principal, policy, and mandate in minutes.
-
-```text
-╔═══════════════════════════════════════════════════════════════════╗
-║                                                                   ║
-║     ██████╗ █████╗ ██████╗  █████╗  ██████╗ █████╗ ██╗            ║
-║    ██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██║            ║
-║    ██║     ███████║██████╔╝███████║██║     ███████║██║            ║
-║    ██║     ██╔══██║██╔══██╗██╔══██║██║     ██╔══██║██║            ║
-║    ╚██████╗██║  ██║██║  ██║██║  ██║╚██████╗██║  ██║███████╗       ║
-║     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝       ║
-║                                                                   ║
-║                   C A R A C A L  F L O W                          ║
-║         Pre-Execution Authority Enforcement System                ║
-║                                                                   ║
-╚═══════════════════════════════════════════════════════════════════╝
-```
-
-**Launch Caracal Flow:**
-
-```bash
-caracal-flow
-```
-
-**Capabilities in Flow:**
-
-* **Onboarding Wizard:** Guided setup for principals and policies.
-* **Authority Ledger:** Real-time stream of authorization decisions.
-* **Principal Hub:** Manage identities and cryptographic key pairs.
-* **Infrastructure Setup:** Provision PostgreSQL with one click.
+By enforcing the **principle of explicit authority**, Caracal ensures no action executes without a cryptographically verified, time-bound mandate issued under a governing policy.
 
 ---
 
-### 2. Caracal Core (CLI & SDK)
+## Core Interfaces
+
+### 1. Caracal SDK (Python & Node.js)
 
 **Target:** Developers and System Architects.
 
-Caracal Core provides the high-performance CLI and SDK for deep integration into agentic loops and CI/CD pipelines.
+The second-generation (v2) SDK provides a unified, high-performance interface for integrating Caracal into any agentic loop.
 
-**Installation:**
+**Installation (Python):**
 
 ```bash
 pip install caracal-core
 ```
 
-**Example CLI Commands:**
+**Installation (Node.js):**
 
 ```bash
-# Register a principal (agent identity)
-caracal principals register --name "web-scraper-01" --type agent
+npm install @caracal/core
+```
 
-# Create an authority policy allowing search on specific resources
-caracal policies create --principal-id <ID> --resources "google.com/*" --actions "GET,POST"
+**Fluent API Example:**
 
-# Issue a time-bound execution mandate
-caracal mandates issue --principal-id <ID> --ttl 1800
+```python
+from caracal.sdk import CaracalClient
 
-# Query the authority ledger
-caracal authority-ledger query --principal-id <ID>
+client = CaracalClient(api_key="your-key")
+context = client.context.checkout(workspace_id="ws_123")
+
+# Register an agent principal
+agent = context.agents.create(name="web-scraper", owner="system")
+```
+
+### 2. Caracal Flow (TUI)
+
+**Target:** Security Operations and Governance Officers.
+
+Interactive terminal interface for monitoring authority ledgers, managing principals, and initial onboarding.
+
+```bash
+caracal-flow
 ```
 
 ---
 
-## Core Concepts
+## Technical Architecture
 
-**Principals**
-Identities (agents, users, or services) that can hold and exercise authority. Principals use ECDSA P-256 keys for cryptographic attestation.
+Caracal Core (the open-source foundation) implements the primary enforcement engine:
 
-**Authority Policies**
-Governing rules that define the maximum validity, allowed resource patterns, and permitted actions for a given principal.
+| Component      | Description                                                         |
+| -------------- | ------------------------------------------------------------------- |
+| **Principals** | Identities (agents/users) with ECDSA P-256 cryptographic keys.      |
+| **Policies**   | Fine-grained rules defining resource patterns and allowed actions.  |
+| **Mandates**   | Short-lived, signed tokens granting the right to execute an action. |
+| **Ledger**     | High-performance audit trail of every authorization event.          |
 
-**Execution Mandates**
-Short-lived, cryptographically signed tokens that grant specific rights. Mandates are checked by the Caracal Gateway before any action is executed.
-
-**Authority Ledger**
-A high-performance, immutable audit trail of every authorization request, decision, and enforcement event.
-
----
-
-## Infrastructure
-
-Caracal scales from local development to enterprise-grade throughput.
-
-| Environment | Database | Messaging | Event Bus | Use Case |
-| --- | --- | --- | --- | --- |
-| **Standard** | SQLite | File-based | In-Memory | Local development, testing, and TUI default. |
-| **Enterprise** | PostgreSQL | — | Redis/Redpanda | High-availability production enforcement. |
+> [!NOTE]
+> Enterprise features (Gateway Proxy, SSO Provider, Compliance Extensions) have been moved to the proprietary **caracalEnterprise** repository.
 
 ---
 
 ## Project Structure
 
-* `caracal/core/`: Core engine for policy evaluation and mandate issuance.
-* `caracal/flow/`: TUI layer for interactive management.
-* `caracal/db/`: Persistence layer supporting multiple backends.
-* `k8s/`: Kubernetes manifests for production deployment.
-* `deploy/`: Infrastructure automation scripts.
+- `caracal/core/`: The core policy evaluation and mandate engine.
+- `caracal/sdk/`: The unified Python SDK implementation.
+- `caracal/flow/`: TUI application for management and monitoring.
+- `caracal/db/`: Persistence layer with PostgreSQL and Redis support.
+- `k8s/`: Kubernetes manifests for core component deployment.
 
 ---
 

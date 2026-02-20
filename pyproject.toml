@@ -72,6 +72,9 @@ caracal-flow = "caracal.flow.main:main"
 where = ["."]
 include = ["caracal*"]
 
+[tool.setuptools.package-dir]
+"caracal.sdk" = "sdk/python"
+
 [tool.setuptools.dynamic]
 version = {file = ["VERSION"]}
 
