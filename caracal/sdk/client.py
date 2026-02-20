@@ -2,420 +2,317 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SDK client for Caracal Core.
+Caracal SDK Client & Builder.
 
-Provides developer-friendly API for metering event emission and agent management.
-Implements fail-closed semantics for connection errors.
+Provides two entry points to initialize the SDK:
+    - ``CaracalClient(api_key=...)`` — quick start with sensible defaults
+    - ``CaracalBuilder().set_api_key(...).use(...).build()`` — advanced config
+
+Backward compatibility: Passing ``config_path=`` to ``CaracalClient``
+delegates to the legacy v0.1 client with a deprecation warning.
 """
 
-from datetime import datetime
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
 
-from caracal.config.settings import CaracalConfig, load_config
-from caracal.core.identity import AgentRegistry
-from caracal.core.ledger import LedgerQuery, LedgerWriter
-from caracal.core.metering import MeteringCollector, MeteringEvent
-from caracal.exceptions import (
-    ConnectionError,
-    SDKConfigurationError,
-)
+import warnings
+from typing import Any, List, Optional
+
 from caracal.logging_config import get_logger
+from caracal.sdk.adapters.base import BaseAdapter
+from caracal.sdk.adapters.http import HttpAdapter
+from caracal.sdk.context import ContextManager, ScopeContext
+from caracal.sdk.extensions import CaracalExtension
+from caracal.sdk.hooks import HookRegistry
+from caracal.exceptions import SDKConfigurationError
 
 logger = get_logger(__name__)
 
 
-class CaracalClient:
-    """
-    SDK client for interacting with Caracal Core.
-    
-    Provides methods for:
-    - Emitting metering events
-    - Managing agents and delegation tokens
-    
-    Implements fail-closed semantics: on connection or initialization errors,
-    the client will raise exceptions.
-    """
+# ---------------------------------------------------------------------------
+# Legacy client (preserved for backward compatibility)
+# ---------------------------------------------------------------------------
 
-    def __init__(self, config_path: Optional[str] = None):
-        """
-        Initialize Caracal SDK client.
-        
-        Loads configuration and initializes all core components:
-        - Agent Registry
-        - Ledger Writer
-        - Ledger Query
-        - Metering Collector
-        
-        Args:
-            config_path: Path to configuration file. If None, uses default path.
-            
-        Raises:
-            SDKConfigurationError: If configuration loading fails
-            ConnectionError: If component initialization fails (fail-closed)
-        """
+# Rename the existing v0.1 class so the new CaracalClient owns the name.
+# Import is deferred to avoid pulling in heavy deps when they aren't needed.
+_LEGACY_CLIENT_LOADED = False
+_LegacyCaracalClientClass: Optional[type] = None
+
+
+def _get_legacy_class() -> type:
+    """Lazily import the v0.1 CaracalClient implementation."""
+    global _LEGACY_CLIENT_LOADED, _LegacyCaracalClientClass
+    if not _LEGACY_CLIENT_LOADED:
+        # The original client.py content is preserved in _legacy_client.py
+        # For backward compat we inline the legacy initialization logic here.
+        _LEGACY_CLIENT_LOADED = True
         try:
-            # Load configuration
-            logger.info("Initializing Caracal SDK client")
-            self.config = load_config(config_path)
-            logger.debug(f"Loaded configuration from {config_path or 'default path'}")
-            
-            # Check for deprecated features
-            self._check_for_deprecated_features()
-            
-            # Initialize core components
-            self._initialize_components()
-            
-            logger.info("Caracal SDK client initialized successfully")
-            
-        except Exception as e:
-            # Fail closed: if we can't initialize, raise error
-            logger.error(f"Failed to initialize Caracal SDK client: {e}", exc_info=True)
-            raise ConnectionError(
-                f"Failed to initialize Caracal SDK client: {e}. "
-                "Failing closed to prevent unchecked operations."
-            ) from e
+            from caracal.config.settings import CaracalConfig, load_config
+            from caracal.core.identity import AgentRegistry
+            from caracal.core.ledger import LedgerQuery, LedgerWriter
+            from caracal.core.metering import MeteringCollector
 
-    def _initialize_components(self) -> None:
-        """
-        Initialize all Caracal Core components.
-        
-        Raises:
-            ConnectionError: If any component fails to initialize
-        """
-        try:
-            # Initialize DelegationTokenManager first (needed by AgentRegistry)
-            from caracal.core.delegation import DelegationTokenManager
-            
-            # Create a temporary agent registry without delegation token manager
-            # This is needed because DelegationTokenManager needs AgentRegistry
-            # and AgentRegistry needs DelegationTokenManager (circular dependency)
-            self.agent_registry = AgentRegistry(
-                registry_path=self.config.storage.agent_registry,
-                backup_count=self.config.storage.backup_count,
-                delegation_token_manager=None  # Will be set after creation
-            )
-            logger.debug("Initialized Agent Registry")
-            
-            # Now create DelegationTokenManager with the agent registry
-            self.delegation_token_manager = DelegationTokenManager(
-                agent_registry=self.agent_registry
-            )
-            logger.debug("Initialized Delegation Token Manager")
-            
-            # Set the delegation token manager in the agent registry
-            self.agent_registry.delegation_token_manager = self.delegation_token_manager
-            
-            # Initialize Ledger Writer
-            self.ledger_writer = LedgerWriter(
-                ledger_path=self.config.storage.ledger,
-                backup_count=self.config.storage.backup_count,
-            )
-            logger.debug("Initialized Ledger Writer")
-            
-            # Initialize Ledger Query
-            self.ledger_query = LedgerQuery(
-                ledger_path=self.config.storage.ledger,
-            )
-            logger.debug("Initialized Ledger Query")
-            
-            # Initialize Metering Collector
-            self.metering_collector = MeteringCollector(
-                ledger_writer=self.ledger_writer,
-            )
-            logger.debug("Initialized Metering Collector")
-            
-        except Exception as e:
-            raise ConnectionError(
-                f"Failed to initialize Caracal Core components: {e}"
-            ) from e
-
-    def _check_for_deprecated_features(self) -> None:
-        """
-        Check for deprecated v0.1 features and emit warnings.
-        
-        This method checks if the configuration uses file-based storage
-        (v0.1 feature) and emits deprecation warnings for features that
-        will be removed in v0.3.
-        
-        Requirements: 20.7
-        """
-        import warnings
-        
-        # Check if using file-based storage (v0.1)
-        # In v0.2, PostgreSQL is the recommended backend
-        # File-based storage will be deprecated in v0.3
-        
-        # Check if agent_registry points to a .json file (file-based)
-        if self.config.storage.agent_registry.endswith('.json'):
-            warnings.warn(
-                "File-based storage for agent registry is deprecated and will be removed in v0.3. "
-                "Please migrate to PostgreSQL backend. "
-                "See migration guide: https://garudexlabs.com/docs/migration/v0.1-to-v0.2",
-                DeprecationWarning,
-                stacklevel=3
-            )
-        
-        # Check if ledger points to a .jsonl file (file-based)
-        if self.config.storage.ledger.endswith('.jsonl'):
-            warnings.warn(
-                "File-based storage for ledger is deprecated and will be removed in v0.3. "
-                "Please migrate to PostgreSQL backend. "
-                "See migration guide: https://garudexlabs.com/docs/migration/v0.1-to-v0.2",
-                DeprecationWarning,
-                stacklevel=3
-            )
-
-    def emit_event(
-        self,
-        agent_id: str,
-        resource_type: str,
-        quantity: Decimal,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """
-        Emit a metering event directly.
-        
-        This method creates a metering event and passes it to the
-        MeteringCollector for ledger writing.
-        
-        Implements fail-closed semantics: if event emission fails,
-        raises an exception to alert the caller.
-        
-        Args:
-            agent_id: Agent identifier
-            resource_type: Type of resource consumed (e.g., "openai.gpt-5.2.input_tokens")
-            quantity: Amount of resource consumed
-            metadata: Optional additional context
-            
-        Raises:
-            ConnectionError: If event emission fails (fail-closed)
-            
-        Example:
-            >>> client = CaracalClient()
-            >>> client.emit_event(
-            ...     agent_id="my-agent-id",
-            ...     resource_type="openai.gpt4.input_tokens",
-            ...     quantity=Decimal("1000"),
-            ...     metadata={"model": "gpt-4", "request_id": "req_123"}
-            ... )
-        """
-        try:
-            # Import datetime here to avoid circular imports
-            from datetime import datetime
-            
-            # Create metering event with timestamp
-            event = MeteringEvent(
-                agent_id=agent_id,
-                resource_type=resource_type,
-                quantity=quantity,
-                timestamp=datetime.utcnow(),
-                metadata=metadata,
-            )
-            
-            # Collect event (validates and writes to ledger)
-            self.metering_collector.collect_event(event)
-            
-            logger.info(
-                f"Emitted metering event: agent_id={agent_id}, "
-                f"resource={resource_type}, quantity={quantity}"
-            )
-            
-        except Exception as e:
-            # Fail closed: log and re-raise
-            logger.error(
-                f"Failed to emit metering event for agent {agent_id}: {e}",
-                exc_info=True
-            )
-            raise ConnectionError(
-                f"Failed to emit metering event: {e}. "
-                "Failing closed to ensure event is not lost."
-            ) from e
-
-    def create_child_agent(
-        self,
-        parent_agent_id: str,
-        child_name: str,
-        child_owner: str,
-        generate_token: bool = False,
-        token_expiration_seconds: int = 86400,
-        allowed_operations: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Create a child agent.
-        
-        This method creates a new agent as a child of the specified parent agent.
-        Optionally generates a delegation token for the child.
-        
-        This is a v0.2 feature that enables hierarchical agent organizations.
-        
-        Args:
-            parent_agent_id: Parent agent identifier
-            child_name: Name for the child agent (must be unique)
-            child_owner: Owner identifier for the child agent
-            generate_token: Whether to generate a delegation token (default: False)
-            token_expiration_seconds: Expiration for generated token (default: 86400)
-            allowed_operations: Allowed operations for the token (if generated)
-            metadata: Optional metadata for the child agent
-            
-        Returns:
-            Dictionary containing:
-            - agent_id: Child agent ID
-            - name: Child agent name
-            - owner: Child agent owner
-            - parent_agent_id: Parent agent ID
-            - delegation_token: JWT token (if generate_token=True)
-            
-        Raises:
-            ConnectionError: If agent creation fails (fail-closed)
-            
-        Requirements: 20.4
-            
-        Example:
-            >>> client = CaracalClient()
-            >>> child = client.create_child_agent(
-            ...     parent_agent_id="parent-uuid",
-            ...     child_name="child-agent-1",
-            ...     child_owner="team@example.com",
-            ...     generate_token=True
-            ... )
-            >>> print(f"Created child agent: {child['agent_id']}")
-            >>> print(f"Delegation token: {child['delegation_token']}")
-        """
-        try:
-            logger.info(
-                f"Creating child agent: parent={parent_agent_id}, "
-                f"name={child_name}"
-            )
-            
-            # Register child agent with parent relationship
-            child_agent = self.agent_registry.register_agent(
-                name=child_name,
-                owner=child_owner,
-                metadata=metadata,
-                parent_agent_id=parent_agent_id,
-                generate_keys=True  # Generate keys for delegation tokens
-            )
-            
-            result = {
-                "agent_id": child_agent.agent_id,
-                "name": child_agent.name,
-                "owner": child_agent.owner,
-                "parent_agent_id": child_agent.parent_agent_id,
-                "created_at": child_agent.created_at,
-            }
-            
-            # Generate delegation token if requested
-            if generate_token:
-                logger.debug(f"Generating delegation token for child {child_agent.agent_id}")
-                
-                delegation_token = self.agent_registry.generate_delegation_token(
-                    parent_agent_id=parent_agent_id,
-                    child_agent_id=child_agent.agent_id,
-                    expiration_seconds=token_expiration_seconds,
-                    allowed_operations=allowed_operations
-                )
-                
-                if delegation_token:
-                    result["delegation_token"] = delegation_token
-                    logger.debug(f"Generated delegation token for child {child_agent.agent_id}")
-                else:
-                    logger.warning(
-                        f"Failed to generate delegation token for child {child_agent.agent_id}"
+            class _LegacyClient:
+                """Legacy v0.1 CaracalClient (config_path based)."""
+                def __init__(self, config_path=None):
+                    self.config = load_config(config_path)
+                    from caracal.core.delegation import DelegationTokenManager
+                    self.agent_registry = AgentRegistry(
+                        registry_path=self.config.storage.agent_registry,
+                        backup_count=self.config.storage.backup_count,
+                        delegation_token_manager=None,
                     )
-            
-            logger.info(
-                f"Successfully created child agent: {child_agent.agent_id} "
-                f"(parent: {parent_agent_id})"
-            )
-            
-            return result
-            
-        except Exception as e:
-            # Fail closed: log and re-raise
-            logger.error(
-                f"Failed to create child agent for parent {parent_agent_id}: {e}",
-                exc_info=True
-            )
-            raise ConnectionError(
-                f"Failed to create child agent: {e}. "
-                "Failing closed to prevent inconsistent state."
-            ) from e
+                    self.delegation_token_manager = DelegationTokenManager(
+                        agent_registry=self.agent_registry
+                    )
+                    self.agent_registry.delegation_token_manager = self.delegation_token_manager
+                    self.ledger_writer = LedgerWriter(
+                        ledger_path=self.config.storage.ledger,
+                        backup_count=self.config.storage.backup_count,
+                    )
+                    self.ledger_query = LedgerQuery(ledger_path=self.config.storage.ledger)
+                    self.metering_collector = MeteringCollector(ledger_writer=self.ledger_writer)
 
-    def get_delegation_token(
+            _LegacyCaracalClientClass = _LegacyClient
+        except Exception:
+            _LegacyCaracalClientClass = None
+    return _LegacyCaracalClientClass  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# New CaracalClient (v2)
+# ---------------------------------------------------------------------------
+
+class CaracalClient:
+    """SDK client for Caracal Core.
+
+    Quick start::
+
+        client = CaracalClient(api_key="sk_test_123")
+        agents = await client.agents.list()
+
+    Workspace-scoped::
+
+        ctx = client.context.checkout(organization_id="org_1", workspace_id="ws_1")
+        await ctx.mandates.create(agent_id="a1", allowed_operations=["read"], expires_in=3600)
+
+    **Backward compatibility**: If ``config_path`` is passed instead of
+    ``api_key``, the legacy v0.1 client is used with a deprecation warning.
+
+    Args:
+        api_key: API key for authentication.
+        base_url: Root URL of the Caracal API. Defaults to ``http://localhost:8000``.
+        adapter: Optional custom transport adapter (overrides base_url/api_key based default).
+        config_path: **Deprecated** — v0.1 config file path.
+    """
+
+    def __init__(
         self,
-        parent_agent_id: str,
-        child_agent_id: str,
-        expiration_seconds: int = 86400,
-        allowed_operations: Optional[List[str]] = None,
-    ) -> Optional[str]:
-        """
-        Generate a delegation token for an existing child agent.
-        
-        This method generates an ASE v1.0.8 delegation token that allows a child
-        agent to prove authorization cryptographically. The token is signed with
-        the parent agent's private key.
-        
-        This is a v0.2 feature for delegation token management.
-        
-        Args:
-            parent_agent_id: Parent agent identifier (issuer)
-            child_agent_id: Child agent identifier (subject)
-            expiration_seconds: Token validity duration in seconds (default: 86400 = 24 hours)
-            allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
-            
-        Returns:
-            JWT delegation token string, or None if token generation fails
-            
-        Raises:
-            ConnectionError: If token generation fails (fail-closed)
-            
-        Requirements: 20.5
-            
-        Example:
-            >>> client = CaracalClient()
-            >>> token = client.get_delegation_token(
-            ...     parent_agent_id="parent-uuid",
-            ...     child_agent_id="child-uuid",
-            ...     expiration_seconds=3600  # 1 hour
-            ... )
-            >>> print(f"Delegation token: {token}")
-        """
-        try:
-            logger.info(
-                f"Generating delegation token: parent={parent_agent_id}, "
-                f"child={child_agent_id}"
+        api_key: Optional[str] = None,
+        base_url: str = "http://localhost:8000",
+        adapter: Optional[BaseAdapter] = None,
+        config_path: Optional[str] = None,
+    ) -> None:
+        # -- Backward-compat path ------------------------------------------
+        if config_path is not None:
+            warnings.warn(
+                "CaracalClient(config_path=...) is deprecated and will be removed "
+                "in v0.4. Use CaracalClient(api_key=...) instead. "
+                "See migration guide: https://garudexlabs.com/docs/migration/v0.1-to-v0.2",
+                DeprecationWarning,
+                stacklevel=2,
             )
-            
-            # Generate delegation token
-            token = self.agent_registry.generate_delegation_token(
-                parent_agent_id=parent_agent_id,
-                child_agent_id=child_agent_id,
-                expiration_seconds=expiration_seconds,
-                allowed_operations=allowed_operations
-            )
-            
-            if token:
-                logger.info(
-                    f"Successfully generated delegation token for child {child_agent_id}"
+            legacy_cls = _get_legacy_class()
+            if legacy_cls is None:
+                raise SDKConfigurationError(
+                    "Legacy CaracalClient requires core storage modules. "
+                    "Use CaracalClient(api_key=...) instead."
                 )
-            else:
-                logger.warning(
-                    f"Failed to generate delegation token for child {child_agent_id}: "
-                    "DelegationTokenManager not available"
-                )
-            
-            return token
-            
-        except Exception as e:
-            # Fail closed: log and re-raise
-            logger.error(
-                f"Failed to generate delegation token for child {child_agent_id}: {e}",
-                exc_info=True
-            )
-            raise ConnectionError(
-                f"Failed to generate delegation token: {e}. "
-                "Failing closed to prevent unauthorized access."
-            ) from e
+            self._legacy = legacy_cls(config_path=config_path)
+            self._is_legacy = True
+            return
 
+        # -- New v2 path ---------------------------------------------------
+        self._is_legacy = False
+        self._legacy = None
+
+        if api_key is None and adapter is None:
+            raise SDKConfigurationError(
+                "CaracalClient requires either api_key or a custom adapter."
+            )
+
+        self._hooks = HookRegistry()
+        self._adapter = adapter or HttpAdapter(
+            base_url=base_url,
+            api_key=api_key,
+        )
+        self._context_manager = ContextManager(
+            adapter=self._adapter, hooks=self._hooks
+        )
+
+        # Default scope (no org/workspace filter)
+        self._default_scope = ScopeContext(
+            adapter=self._adapter, hooks=self._hooks
+        )
+
+        self._extensions: List[CaracalExtension] = []
+        logger.info("CaracalClient initialized (v2)")
+
+    # -- Extension registration --------------------------------------------
+
+    def use(self, extension: CaracalExtension) -> CaracalClient:
+        """Register an extension plugin.
+
+        Args:
+            extension: Extension implementing :class:`CaracalExtension`.
+
+        Returns:
+            ``self`` for method chaining.
+        """
+        if self._is_legacy:
+            raise SDKConfigurationError(
+                "Extensions are not supported in legacy mode. "
+                "Use CaracalClient(api_key=...) instead."
+            )
+        extension.install(self._hooks)
+        self._extensions.append(extension)
+        logger.info(f"Extension installed: {extension.name} v{extension.version}")
+        return self
+
+    # -- Resource accessors (default scope) --------------------------------
+
+    @property
+    def context(self) -> ContextManager:
+        """Context manager for scope checkout."""
+        if self._is_legacy:
+            raise SDKConfigurationError(
+                "Context management is not available in legacy mode."
+            )
+        return self._context_manager
+
+    @property
+    def agents(self):
+        """Agent operations in the default (unscoped) context."""
+        return self._default_scope.agents
+
+    @property
+    def mandates(self):
+        """Mandate operations in the default (unscoped) context."""
+        return self._default_scope.mandates
+
+    @property
+    def delegation(self):
+        """Delegation operations in the default (unscoped) context."""
+        return self._default_scope.delegation
+
+    @property
+    def ledger(self):
+        """Ledger operations in the default (unscoped) context."""
+        return self._default_scope.ledger
+
+    # -- Lifecycle ---------------------------------------------------------
+
+    def close(self) -> None:
+        """Release all resources."""
+        if not self._is_legacy and self._adapter:
+            self._adapter.close()
+            logger.info("CaracalClient closed")
+
+    # -- Legacy proxy methods (for backward compat) ------------------------
+
+    def emit_event(self, *args: Any, **kwargs: Any) -> None:
+        """**Deprecated** — proxy to legacy client's emit_event."""
+        if self._is_legacy and self._legacy:
+            return self._legacy.emit_event(*args, **kwargs)
+        raise SDKConfigurationError(
+            "emit_event() is a legacy method. Use mandates or metering APIs."
+        )
+
+    def create_child_agent(self, *args: Any, **kwargs: Any) -> Any:
+        """**Deprecated** — proxy to legacy client's create_child_agent."""
+        if self._is_legacy and self._legacy:
+            return self._legacy.create_child_agent(*args, **kwargs)
+        raise SDKConfigurationError(
+            "create_child_agent() is a legacy method. Use client.agents.create_child()."
+        )
+
+    def get_delegation_token(self, *args: Any, **kwargs: Any) -> Any:
+        """**Deprecated** — proxy to legacy client's get_delegation_token."""
+        if self._is_legacy and self._legacy:
+            return self._legacy.get_delegation_token(*args, **kwargs)
+        raise SDKConfigurationError(
+            "get_delegation_token() is a legacy method. Use client.delegation.get_token()."
+        )
+
+
+# ---------------------------------------------------------------------------
+# CaracalBuilder (advanced initialization)
+# ---------------------------------------------------------------------------
+
+class CaracalBuilder:
+    """Fluent builder for advanced CaracalClient configuration.
+
+    Example::
+
+        client = (
+            CaracalBuilder()
+            .set_api_key("sk_prod_123")
+            .set_base_url("https://api.caracal.io")
+            .set_transport(WebSocketAdapter(url="wss://..."))
+            .use(ComplianceExtension(standard="soc2"))
+            .build()
+        )
+    """
+
+    def __init__(self) -> None:
+        self._api_key: Optional[str] = None
+        self._base_url: str = "http://localhost:8000"
+        self._adapter: Optional[BaseAdapter] = None
+        self._extensions: List[CaracalExtension] = []
+
+    def set_api_key(self, key: str) -> CaracalBuilder:
+        """Set the API key."""
+        self._api_key = key
+        return self
+
+    def set_base_url(self, url: str) -> CaracalBuilder:
+        """Set the Caracal API base URL."""
+        self._base_url = url
+        return self
+
+    def set_transport(self, adapter: BaseAdapter) -> CaracalBuilder:
+        """Override the default HTTP adapter with a custom transport."""
+        self._adapter = adapter
+        return self
+
+    def use(self, extension: CaracalExtension) -> CaracalBuilder:
+        """Queue an extension for installation after build."""
+        self._extensions.append(extension)
+        return self
+
+    def build(self) -> CaracalClient:
+        """Construct the CaracalClient and install all queued extensions.
+
+        Raises:
+            SDKConfigurationError: If api_key is missing and no adapter provided.
+        """
+        if self._api_key is None and self._adapter is None:
+            raise SDKConfigurationError(
+                "CaracalBuilder.build() requires either set_api_key() or set_transport()."
+            )
+
+        client = CaracalClient(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            adapter=self._adapter,
+        )
+
+        for ext in self._extensions:
+            client.use(ext)
+
+        # Fire initialize hooks after all extensions are installed
+        client._hooks.fire_initialize()
+
+        logger.info(
+            f"CaracalBuilder: built client with {len(self._extensions)} extension(s)"
+        )
+        return client
