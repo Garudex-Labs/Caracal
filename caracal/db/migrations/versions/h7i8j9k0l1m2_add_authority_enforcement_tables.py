@@ -8,7 +8,7 @@ Revision ID: h7i8j9k0l1m2
 Revises: g6h7i8j9k0l1
 Create Date: 2026-02-09 10:00:00.000000
 
-Adds authority enforcement tables for v0.5.0 transformation:
+Adds authority enforcement tables for authority transformation:
 - principals: Principal identity (agent, user, service)
 - execution_mandates: Cryptographically signed execution authorizations
 - authority_ledger_events: Immutable authority decision log

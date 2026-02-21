@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 TUI ↔ SDK Bridge.
 
-Connects Caracal Flow (TUI) to the redesigned SDK v2 client.
+Connects Caracal Flow (TUI) to the redesigned SDK client.
 Replaces direct core imports with SDK-mediated operations.
 """
 
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 
 class SDKBridge:
-    """Bridge between Caracal Flow TUI and the SDK v2 client.
+    """Bridge between Caracal Flow TUI and the SDK client.
 
     Manages an SDK client instance and exposes a simplified interface
     for TUI operations:

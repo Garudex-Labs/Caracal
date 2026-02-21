@@ -1,6 +1,6 @@
-# Caracal Core v0.5 - Helm Chart
+# Caracal Core v1.0.0 - Helm Chart
 
-This Helm chart deploys Caracal Core v0.5 on a Kubernetes cluster.
+This Helm chart deploys Caracal Core v1.0.0 on a Kubernetes cluster.
 
 ## Prerequisites
 
@@ -178,42 +178,6 @@ The following table lists the configurable parameters of the Caracal chart and t
 | `redis.resources.limits.memory`   | Memory limit           | `512Mi`                            |
 
 ## Upgrading
-
-### From v0.3 to v0.5
-
-v0.5 introduces authority enforcement. Follow the migration guide:
-
-1. **Backup your data**:
-
-   ```bash
-   # Backup PostgreSQL
-   kubectl exec -n caracal caracal-postgres-0 -- \
-     pg_dump -U caracal caracal > caracal-backup-$(date +%Y%m%d).sql
-   ```
-
-2. **Upgrade the chart**:
-
-   ```bash
-   helm upgrade caracal caracal/caracal -n caracal -f my-values.yaml
-   ```
-
-3. **Run database migrations**:
-
-   ```bash
-   caracal db migrate up
-   ```
-
-4. **Backfill Merkle roots for v0.2 events**:
-
-   ```bash
-   caracal merkle backfill --source-version v0.2
-   ```
-
-5. **Verify the upgrade**:
-   ```bash
-   kubectl get pods -n caracal
-   kubectl logs -n caracal -l app.kubernetes.io/name=caracal
-   ```
 
 ## Troubleshooting
 
