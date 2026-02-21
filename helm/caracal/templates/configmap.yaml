@@ -26,41 +26,14 @@ data:
   MERKLE_SIGNING_ALGORITHM: {{ .Values.consumers.ledgerWriter.merkle.signingAlgorithm | quote }}
   MERKLE_SIGNING_KEY_PATH: "/etc/caracal/keys/merkle_signing_key.pem"
   
-  # Gateway Configuration
-  GATEWAY_LISTEN_ADDRESS: "0.0.0.0:{{ .Values.gateway.service.httpsPort }}"
-  AUTH_MODE: {{ .Values.gateway.authMode | quote }}
-  LOG_LEVEL: {{ .Values.logging.level | quote }}
-  REQUEST_TIMEOUT: "30"
-  MAX_REQUEST_SIZE_MB: "10"
-  
-  # TLS Configuration
-  TLS_CERT_FILE: "/etc/caracal/tls/server.crt"
-  TLS_KEY_FILE: "/etc/caracal/tls/server.key"
-  TLS_CA_FILE: "/etc/caracal/tls/ca.crt"
-  JWT_PUBLIC_KEY_PATH: "/etc/caracal/tls/jwt_public.pem"
-  JWT_ALGORITHM: "RS256"
-  
-  # Replay Protection
-  ENABLE_REPLAY_PROTECTION: {{ .Values.gateway.replayProtection.enabled | quote }}
-  NONCE_CACHE_TTL: {{ .Values.gateway.replayProtection.nonceCacheTTL | quote }}
-  NONCE_CACHE_SIZE: {{ .Values.gateway.replayProtection.nonceCacheSize | quote }}
-  TIMESTAMP_WINDOW: {{ .Values.gateway.replayProtection.timestampWindow | quote }}
-  
-  # Authority Policy Cache
-  ENABLE_POLICY_CACHE: {{ .Values.gateway.policyCache.enabled | quote }}
-  POLICY_CACHE_TTL: {{ .Values.gateway.policyCache.ttl | quote }}
-  POLICY_CACHE_MAX_SIZE: {{ .Values.gateway.policyCache.maxSize | quote }}
+
   
   # MCP Adapter Configuration
   MCP_ADAPTER_LISTEN_ADDRESS: "0.0.0.0:{{ .Values.mcpAdapter.service.port }}"
   MCP_SERVERS: {{ .Values.mcpAdapter.mcpServers | quote }}
   MCP_SERVER_TIMEOUT: {{ .Values.mcpAdapter.mcpServerTimeout | quote }}
   
-  # Consumer Configuration
-  METRICS_PORT: {{ .Values.consumers.metricsAggregator.metricsPort | quote }}
-  ANOMALY_DETECTION_THRESHOLD: {{ .Values.consumers.metricsAggregator.anomalyDetectionThreshold | quote }}
-  AUDIT_LOG_RETENTION_DAYS: {{ .Values.consumers.auditLogger.auditLogRetentionDays | quote }}
-  
+
   # Monitoring Configuration
   ENABLE_PROMETHEUS_METRICS: {{ .Values.monitoring.prometheus.enabled | quote }}
   ENABLE_STRUCTURED_LOGGING: {{ .Values.logging.structuredLogging | quote }}

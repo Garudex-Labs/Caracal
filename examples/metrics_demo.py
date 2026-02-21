@@ -179,11 +179,7 @@ def main():
     print("\n=== Sample Metrics Output ===")
     lines = output.decode('utf-8').split('\n')
     
-    # Show gateway metrics
-    print("\nGateway Metrics:")
-    for line in lines:
-        if 'caracal_gateway' in line and not line.startswith('#'):
-            print(f"  {line}")
+
     
     # Show policy metrics
     print("\nPolicy Metrics:")
@@ -214,9 +210,7 @@ def main():
     print("  3. Configure Prometheus to scrape the endpoint")
     print("\nExample Prometheus scrape config:")
     print("  scrape_configs:")
-    print("    - job_name: 'caracal-gateway'")
-    print("      static_configs:")
-    print("        - targets: ['localhost:8443']")
+    print("        - targets: ['localhost:8080']")
     print("      metrics_path: '/metrics'")
 
 

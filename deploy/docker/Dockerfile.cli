@@ -25,6 +25,7 @@ WORKDIR /app
 # Copy requirements and install Python dependencies
 COPY Caracal/pyproject.toml Caracal/setup.py Caracal/VERSION ./
 COPY Caracal/caracal/ ./caracal/
+COPY Caracal/sdk/ ./sdk/
 
 # Copy and install local ASE package first
 COPY ase/ /tmp/ase/

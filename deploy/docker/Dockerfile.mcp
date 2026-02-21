@@ -26,6 +26,7 @@ COPY Caracal/README.md Caracal/LICENSE Caracal/VERSION ./
 
 # Copy source code
 COPY Caracal/caracal/ ./caracal/
+COPY Caracal/sdk/ ./sdk/
 
 # Copy and install local ASE package, then build Caracal wheel
 COPY ase/ /build/ase/
