@@ -1,4 +1,4 @@
-# Default values for Caracal Core v0.5
+# Default values for Caracal Core v1.0.0
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
@@ -84,7 +84,7 @@ mcpAdapter:
   enabled: true
   image:
     repository: caracal-mcp-adapter
-    tag: "v0.3"
+    tag: "v1.0.0"
     pullPolicy: IfNotPresent
 
   # Number of replicas
@@ -134,7 +134,7 @@ mcpAdapter:
     enabled: true
     image:
       repository: caracal-consumer
-      tag: "v0.3"
+      tag: "v1.0.0"
       pullPolicy: IfNotPresent
 
     replicaCount: 2

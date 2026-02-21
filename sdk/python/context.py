@@ -172,20 +172,4 @@ class ContextManager:
         return new_ctx
 
 
-# ---------------------------------------------------------------------------
-# Backward compatibility — deprecated BudgetCheckContext
-# ---------------------------------------------------------------------------
 
-class BudgetCheckContext:
-    """**Deprecated** — use :class:`ScopeContext` instead.
-
-    Retained only for backward compatibility with SDK v0.1.
-    """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        warnings.warn(
-            "BudgetCheckContext is deprecated and will be removed in v0.4. "
-            "Use CaracalClient(api_key=...).context.checkout() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )

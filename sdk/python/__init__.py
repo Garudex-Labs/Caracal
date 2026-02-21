@@ -15,9 +15,11 @@ Advanced::
     client = CaracalBuilder().set_api_key("sk_prod").use(MyExtension()).build()
 """
 
-__version__ = "0.2.0"
+from caracal._version import get_version
 
-# -- New v2 API (primary) -------------------------------------------------
+__version__ = get_version()
+
+# -- Core API (primary) -------------------------------------------------
 
 from caracal.sdk.client import CaracalClient, CaracalBuilder, SDKConfigurationError
 from caracal.sdk.context import ContextManager, ScopeContext, BudgetCheckContext
@@ -34,34 +36,27 @@ from caracal.sdk.adapters import (
     WebSocketAdapter,
 )
 
-# -- Legacy v0.1 exports (kept for backward compat) -----------------------
 
-from caracal.sdk.authority_client import AuthorityClient
-from caracal.sdk.async_authority_client import AsyncAuthorityClient
 
 __all__ = [
     "__version__",
-    # v2 — client
+    # client
     "CaracalClient",
     "CaracalBuilder",
     "SDKConfigurationError",
-    # v2 — context
+    # context
     "ContextManager",
     "ScopeContext",
-    # v2 — operations
+    # operations
     "AgentOperations",
     "MandateOperations",
     "DelegationOperations",
     "LedgerOperations",
-    # v2 — infra
+    # infra
     "HookRegistry",
     "CaracalExtension",
     "BaseAdapter",
     "HttpAdapter",
     "MockAdapter",
     "WebSocketAdapter",
-    # legacy (deprecated)
-    "AuthorityClient",
-    "AsyncAuthorityClient",
-    "BudgetCheckContext",
 ]
