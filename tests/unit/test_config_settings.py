@@ -2,9 +2,9 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Unit tests for configuration management (v0.3).
+Unit tests for configuration management.
 
-Tests configuration loading, validation, and v0.3 features.
+Tests configuration loading and validation.
 """
 
 import os
@@ -301,8 +301,8 @@ class TestEnvironmentVariableSubstitution:
             os.unlink(config_path)
 
 
-class TestV03ConfigurationFeatures:
-    """Test v0.3-specific configuration features."""
+class TestAdvancedConfigurationFeatures:
+    """Test specific configuration features."""
     
     def test_merkle_batch_thresholds(self):
         """Test Merkle batch threshold configuration."""
