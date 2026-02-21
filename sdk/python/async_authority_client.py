@@ -79,7 +79,7 @@ class AsyncAuthorityClient:
             # Prepare headers
             self.headers = {
                 "Content-Type": "application/json",
-                "User-Agent": "Caracal-Authority-SDK-Async/0.6.0"
+                "User-Agent": "Caracal-Authority-SDK-Async/1.0.0"
             }
             
             if self.api_key:

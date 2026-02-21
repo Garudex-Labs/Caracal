@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# PostgreSQL Restore Script for Caracal Core v0.3
+# PostgreSQL Restore Script for Caracal Core
 #
 # This script restores a PostgreSQL database from a backup file.
 #

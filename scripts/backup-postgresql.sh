@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# PostgreSQL Backup Script for Caracal Core v0.3
+# PostgreSQL Backup Script for Caracal Core
 #
 # This script creates a backup of the PostgreSQL database and optionally
 # uploads it to S3 for long-term storage.

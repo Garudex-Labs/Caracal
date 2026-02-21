@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Event Replay Recovery Script for Caracal Core v0.3
+# Event Replay Recovery Script for Caracal Core
 #
 # This script performs full event replay recovery by:
 # 1. Clearing the database (optional)
