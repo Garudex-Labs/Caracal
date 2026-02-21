@@ -7,7 +7,7 @@ This Helm chart deploys Caracal Core v0.5 on a Kubernetes cluster.
 - Kubernetes 1.20+
 - Helm 3.0+
 - PV provisioner support in the underlying infrastructure (for persistent volumes)
-- TLS certificates for Gateway Proxy
+- TLS certificates
 - Merkle signing keys for cryptographic ledger
 
 ## Installing the Chart
@@ -27,7 +27,7 @@ Create TLS certificates:
 # Generate self-signed certificates (for testing)
 mkdir -p certs
 openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt \
-  -days 365 -nodes -subj "/CN=caracal-gateway"
+  -days 365 -nodes -subj "/CN=caracal"
 openssl req -x509 -newkey rsa:4096 -keyout certs/ca.key -out certs/ca.crt \
   -days 365 -nodes -subj "/CN=caracal-ca"
 ssh-keygen -t rsa -b 4096 -m PEM -f certs/jwt_private.pem -N ""
@@ -70,25 +70,11 @@ redis:
   auth:
     password: "YOUR_SECURE_PASSWORD_HERE"
 
-# Configure Gateway
-gateway:
-  service:
-    type: LoadBalancer
-  tls:
-    secretName: caracal-tls
-
 # Configure consumers
 consumers:
   ledgerWriter:
     merkle:
       signingKeySecretName: caracal-merkle-keys
-
-# Enable autoscaling
-gateway:
-  autoscaling:
-    enabled: true
-    minReplicas: 3
-    maxReplicas: 10
 
 mcpAdapter:
   autoscaling:
@@ -159,72 +145,37 @@ The following table lists the configurable parameters of the Caracal chart and t
 
 ### Global Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `global.namespace` | Namespace to deploy into | `caracal` |
-| `global.imagePullSecrets` | Image pull secrets | `[]` |
-| `global.storageClass` | Storage class for persistent volumes | `""` |
+| Parameter                 | Description                          | Default   |
+| ------------------------- | ------------------------------------ | --------- |
+| `global.namespace`        | Namespace to deploy into             | `caracal` |
+| `global.imagePullSecrets` | Image pull secrets                   | `[]`      |
+| `global.storageClass`     | Storage class for persistent volumes | `""`      |
 
 ### PostgreSQL Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `postgresql.enabled` | Enable PostgreSQL | `true` |
-| `postgresql.auth.database` | Database name | `caracal` |
-| `postgresql.auth.username` | Database username | `caracal` |
-| `postgresql.auth.password` | Database password | `caracal_dev_password_CHANGE_ME` |
-| `postgresql.persistence.size` | Persistent volume size | `10Gi` |
-| `postgresql.resources.requests.cpu` | CPU request | `500m` |
-| `postgresql.resources.requests.memory` | Memory request | `512Mi` |
-| `postgresql.resources.limits.cpu` | CPU limit | `2000m` |
-| `postgresql.resources.limits.memory` | Memory limit | `2Gi` |
+| Parameter                              | Description            | Default                          |
+| -------------------------------------- | ---------------------- | -------------------------------- |
+| `postgresql.enabled`                   | Enable PostgreSQL      | `true`                           |
+| `postgresql.auth.database`             | Database name          | `caracal`                        |
+| `postgresql.auth.username`             | Database username      | `caracal`                        |
+| `postgresql.auth.password`             | Database password      | `caracal_dev_password_CHANGE_ME` |
+| `postgresql.persistence.size`          | Persistent volume size | `10Gi`                           |
+| `postgresql.resources.requests.cpu`    | CPU request            | `500m`                           |
+| `postgresql.resources.requests.memory` | Memory request         | `512Mi`                          |
+| `postgresql.resources.limits.cpu`      | CPU limit              | `2000m`                          |
+| `postgresql.resources.limits.memory`   | Memory limit           | `2Gi`                            |
 
 ### Redis Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `redis.enabled` | Enable Redis | `true` |
-| `redis.auth.password` | Redis password | `caracal_redis_password_CHANGE_ME` |
-| `redis.persistence.size` | Persistent volume size | `10Gi` |
-| `redis.resources.requests.cpu` | CPU request | `250m` |
-| `redis.resources.requests.memory` | Memory request | `256Mi` |
-| `redis.resources.limits.cpu` | CPU limit | `1000m` |
-| `redis.resources.limits.memory` | Memory limit | `512Mi` |
-
-
-### Gateway Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `gateway.enabled` | Enable Gateway Proxy | `true` |
-| `gateway.replicaCount` | Number of replicas | `3` |
-| `gateway.service.type` | Service type | `LoadBalancer` |
-| `gateway.service.httpsPort` | HTTPS port | `8443` |
-| `gateway.service.metricsPort` | Metrics port | `9090` |
-| `gateway.authMode` | Authentication mode (jwt, mtls, api_key) | `jwt` |
-| `gateway.tls.enabled` | Enable TLS | `true` |
-| `gateway.tls.secretName` | TLS secret name | `caracal-tls` |
-| `gateway.autoscaling.enabled` | Enable autoscaling | `true` |
-| `gateway.autoscaling.minReplicas` | Minimum replicas | `3` |
-| `gateway.autoscaling.maxReplicas` | Maximum replicas | `10` |
-| `gateway.resources.requests.cpu` | CPU request | `250m` |
-| `gateway.resources.requests.memory` | Memory request | `256Mi` |
-| `gateway.resources.limits.cpu` | CPU limit | `2000m` |
-| `gateway.resources.limits.memory` | Memory limit | `1Gi` |
-
-### Consumer Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `consumers.ledgerWriter.enabled` | Enable LedgerWriter consumer | `true` |
-| `consumers.ledgerWriter.replicaCount` | Number of replicas | `2` |
-| `consumers.ledgerWriter.merkle.batchSizeLimit` | Merkle batch size limit | `1000` |
-| `consumers.ledgerWriter.merkle.batchTimeoutSeconds` | Merkle batch timeout | `300` |
-| `consumers.metricsAggregator.enabled` | Enable MetricsAggregator consumer | `true` |
-| `consumers.metricsAggregator.replicaCount` | Number of replicas | `2` |
-| `consumers.metricsAggregator.metricsPort` | Metrics port | `9091` |
-| `consumers.auditLogger.enabled` | Enable AuditLogger consumer | `true` |
-| `consumers.auditLogger.replicaCount` | Number of replicas | `2` |
+| Parameter                         | Description            | Default                            |
+| --------------------------------- | ---------------------- | ---------------------------------- |
+| `redis.enabled`                   | Enable Redis           | `true`                             |
+| `redis.auth.password`             | Redis password         | `caracal_redis_password_CHANGE_ME` |
+| `redis.persistence.size`          | Persistent volume size | `10Gi`                             |
+| `redis.resources.requests.cpu`    | CPU request            | `250m`                             |
+| `redis.resources.requests.memory` | Memory request         | `256Mi`                            |
+| `redis.resources.limits.cpu`      | CPU limit              | `1000m`                            |
+| `redis.resources.limits.memory`   | Memory limit           | `512Mi`                            |
 
 ## Upgrading
 
@@ -233,6 +184,7 @@ The following table lists the configurable parameters of the Caracal chart and t
 v0.5 introduces authority enforcement. Follow the migration guide:
 
 1. **Backup your data**:
+
    ```bash
    # Backup PostgreSQL
    kubectl exec -n caracal caracal-postgres-0 -- \
@@ -240,16 +192,19 @@ v0.5 introduces authority enforcement. Follow the migration guide:
    ```
 
 2. **Upgrade the chart**:
+
    ```bash
    helm upgrade caracal caracal/caracal -n caracal -f my-values.yaml
    ```
 
 3. **Run database migrations**:
+
    ```bash
    caracal db migrate up
    ```
 
 4. **Backfill Merkle roots for v0.2 events**:
+
    ```bash
    caracal merkle backfill --source-version v0.2
    ```

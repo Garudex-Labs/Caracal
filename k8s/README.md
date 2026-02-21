@@ -15,12 +15,11 @@ The deployment consists of:
 
 1. **Kubernetes Cluster**: v1.20 or later
 2. **kubectl**: Configured to access your cluster
-4. **Storage Class**: For PostgreSQL persistent volumes (optional)
+3. **Storage Class**: For PostgreSQL persistent volumes (optional)
 
 ## Quick Start
 
 ### 1. Prepare TLS Certificates
-
 
 ```bash
 # Create a directory for certificates
@@ -28,7 +27,7 @@ mkdir -p certs
 
 # Generate self-signed certificates (for testing only)
 openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt \
-  -days 365 -nodes -subj "/CN=caracal-gateway"
+  -days 365 -nodes -subj "/CN=caracal"
 
 # CA certificate for mTLS client authentication
 openssl req -x509 -newkey rsa:4096 -keyout certs/ca.key -out certs/ca.crt \
@@ -88,8 +87,6 @@ kubectl apply -f postgres-statefulset.yaml
 # Wait for PostgreSQL to be ready
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=database -n caracal --timeout=300s
 
-kubectl apply -f gateway-deployment.yaml
-
 # Deploy MCP Adapter
 kubectl apply -f mcp-adapter-deployment.yaml
 ```
@@ -103,20 +100,8 @@ kubectl get pods -n caracal
 # Check services
 kubectl get svc -n caracal
 
-kubectl logs -n caracal -l app.kubernetes.io/component=gateway --tail=50
-
 # Check MCP Adapter logs
 kubectl logs -n caracal -l app.kubernetes.io/component=mcp-adapter --tail=50
-```
-
-
-```bash
-# Get the LoadBalancer external IP
-kubectl get svc caracal-gateway -n caracal
-
-# Test health endpoint
-GATEWAY_IP=$(kubectl get svc caracal-gateway -n caracal -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-curl -k https://$GATEWAY_IP:8443/health
 ```
 
 ## Configuration
@@ -126,9 +111,6 @@ curl -k https://$GATEWAY_IP:8443/health
 Edit `configmap.yaml` to customize:
 
 - Database connection settings
-- Authentication mode (jwt, mtls, api_key)
-- Replay protection settings
-- Policy cache settings
 - Provisional charge timeouts
 - MCP server URLs
 
@@ -147,6 +129,7 @@ resources:
 ```
 
 **MCP Adapter** (`mcp-adapter-deployment.yaml`):
+
 ```yaml
 resources:
   requests:
@@ -158,6 +141,7 @@ resources:
 ```
 
 **PostgreSQL** (`postgres-statefulset.yaml`):
+
 ```yaml
 resources:
   requests:
@@ -173,8 +157,6 @@ resources:
 Scale deployments as needed:
 
 ```bash
-kubectl scale deployment caracal-gateway -n caracal --replicas=5
-
 # Scale MCP Adapter to 3 replicas
 kubectl scale deployment caracal-mcp-adapter -n caracal --replicas=3
 ```
@@ -190,7 +172,7 @@ volumeClaimTemplates:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: your-storage-class  # Add this line
+      storageClassName: your-storage-class # Add this line
       resources:
         requests:
           storage: 10Gi
@@ -200,7 +182,6 @@ volumeClaimTemplates:
 
 ### Prometheus Metrics
 
-
 - **MCP Adapter**: `http://<mcp-adapter-pod>:8080/metrics`
 
 Pods are annotated for automatic Prometheus scraping:
@@ -208,7 +189,7 @@ Pods are annotated for automatic Prometheus scraping:
 ```yaml
 annotations:
   prometheus.io/scrape: "true"
-  prometheus.io/port: "9090"  # or "8080" for MCP Adapter
+  prometheus.io/port: "9090" # or "8080" for MCP Adapter
   prometheus.io/path: "/metrics"
 ```
 
@@ -224,8 +205,6 @@ Health endpoints are available:
 View logs for troubleshooting:
 
 ```bash
-kubectl logs -n caracal -l app.kubernetes.io/component=gateway -f
-
 # MCP Adapter logs
 kubectl logs -n caracal -l app.kubernetes.io/component=mcp-adapter -f
 
@@ -364,29 +343,6 @@ kubectl get secret caracal-tls -n caracal -o jsonpath='{.data.server\.crt}' | ba
 kubectl get secret caracal-tls -n caracal -o jsonpath='{.data.server\.crt}' | base64 -d | openssl x509 -enddate -noout
 ```
 
-### LoadBalancer Not Getting External IP
-
-```bash
-# Check service status
-kubectl describe svc caracal-gateway -n caracal
-
-# Check cloud provider integration
-kubectl get events -n caracal --sort-by='.lastTimestamp'
-```
-
-If LoadBalancer is not supported, use NodePort or Ingress:
-
-```yaml
-# Change service type to NodePort
-spec:
-  type: NodePort
-  ports:
-    - name: https
-      port: 8443
-      targetPort: 8443
-      nodePort: 30443  # Optional: specify port
-```
-
 ## Cleanup
 
 Remove all Caracal resources:
@@ -394,7 +350,6 @@ Remove all Caracal resources:
 ```bash
 # Delete all resources
 kubectl delete -f mcp-adapter-deployment.yaml
-kubectl delete -f gateway-deployment.yaml
 kubectl delete -f postgres-statefulset.yaml
 kubectl delete -f secret.yaml
 kubectl delete -f configmap.yaml

@@ -9,6 +9,7 @@ This directory contains utility scripts for managing Caracal Core.
 The `VERSION` file at the root of the project is the single source of truth for the version number. All other version references are derived from this file.
 
 To update the version:
+
 1. Edit the `VERSION` file with the new version number (e.g., `1.0.0`)
 2. Run `./scripts/update-version.sh` to update all references
 3. Commit the changes
@@ -18,11 +19,13 @@ To update the version:
 Updates all version references across the codebase from the VERSION file.
 
 **Usage:**
+
 ```bash
 ./scripts/update-version.sh
 ```
 
 **What it updates:**
+
 - Helm Chart.yaml (version and appVersion)
 - Kubernetes manifests (app.kubernetes.io/version labels)
 
@@ -31,12 +34,13 @@ Updates all version references across the codebase from the VERSION file.
 Builds all Docker images with the version from the VERSION file.
 
 **Usage:**
+
 ```bash
 ./scripts/build-images.sh
 ```
 
 **Images built:**
-- `caracal-gateway:v{VERSION}`
+
 - `caracal-mcp-adapter:v{VERSION}`
 - `caracal-consumer:v{VERSION}`
 - `caracal-cli:v{VERSION}`
@@ -46,11 +50,13 @@ Builds all Docker images with the version from the VERSION file.
 Comprehensive release script that automates the entire release process.
 
 **Usage:**
+
 ```bash
 ./scripts/release.sh
 ```
 
 **Steps:**
+
 1. Updates all version references
 2. Creates git tag (optional)
 3. Builds Docker images (optional)
@@ -66,6 +72,7 @@ The script is interactive and prompts for confirmation at each step.
 Creates a backup of the PostgreSQL database.
 
 **Usage:**
+
 ```bash
 ./scripts/backup-postgresql.sh
 ```
@@ -75,6 +82,7 @@ Creates a backup of the PostgreSQL database.
 Restores a PostgreSQL database from backup.
 
 **Usage:**
+
 ```bash
 ./scripts/restore-postgresql.sh <backup-file>
 ```
@@ -86,6 +94,7 @@ Restores a PostgreSQL database from backup.
 Configures Redis security (password, TLS).
 
 **Usage:**
+
 ```bash
 ./scripts/setup-redis-security.sh
 ```
@@ -97,6 +106,7 @@ Configures Redis security (password, TLS).
 Recovers system state from a ledger snapshot.
 
 **Usage:**
+
 ```bash
 ./scripts/snapshot-recovery.sh <snapshot-id>
 ```
@@ -107,10 +117,11 @@ The Python package version is automatically read from the VERSION file through:
 
 1. **pyproject.toml**: Uses `dynamic = ["version"]` and `[tool.setuptools.dynamic]`
 2. **setup.py**: Reads VERSION file and passes to setuptools
-3. **caracal/_version.py**: Module that reads VERSION file at runtime
-4. **caracal/__init__.py**: Exports `__version__` from `_version.py`
+3. **caracal/\_version.py**: Module that reads VERSION file at runtime
+4. **caracal/**init**.py**: Exports `__version__` from `_version.py`
 
 This ensures the version is always consistent across:
+
 - Package metadata
 - Runtime code
 - Docker images
@@ -122,11 +133,13 @@ This ensures the version is always consistent across:
 ### Releasing a New Version
 
 1. **Update VERSION file:**
+
    ```bash
    echo "1.0.0" > VERSION
    ```
 
 2. **Run release script:**
+
    ```bash
    ./scripts/release.sh
    ```

@@ -90,7 +90,7 @@ Caracal Core (the open-source foundation) implements the primary enforcement eng
 | **Ledger**     | High-performance audit trail of every authorization event.          |
 
 > [!NOTE]
-> Enterprise features (Gateway Proxy, SSO Provider, Compliance Extensions) have been moved to the proprietary **caracalEnterprise** repository.
+> Enterprise features (Gateway Proxy, SSO Provider, Compliance Extensions) are available on www.garudexlabs.com
 
 ---
 
