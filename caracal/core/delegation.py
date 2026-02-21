@@ -70,7 +70,6 @@ class DelegationTokenManager:
     Generates JWT tokens signed with ECDSA P-256 (ES256) and validates
     token signatures, expiration, and authority limits.
     
-    Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
     """
 
     def __init__(self, agent_registry):

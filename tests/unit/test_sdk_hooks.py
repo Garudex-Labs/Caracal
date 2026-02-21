@@ -1,3 +1,4 @@
+from caracal._version import get_version
 """
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
@@ -156,7 +157,7 @@ class TestCaracalExtension:
 
             @property
             def version(self) -> str:
-                return "0.1.0"
+                return get_version()
 
             def install(self, hooks: HookRegistry) -> None:
                 hooks.on_initialize(lambda: None)
@@ -169,7 +170,7 @@ class TestCaracalExtension:
 
         ext = DemoExtension()
         assert ext.name == "demo"
-        assert ext.version == "0.1.0"
+        assert ext.version == "1.0.0"
 
         ext.install(registry)
         # Verify hooks were registered
@@ -187,7 +188,7 @@ class TestCaracalExtension:
 
             @property
             def version(self):
-                return "1.0.0"
+                return get_version()
 
             def install(self, hooks):
                 hooks.on_before_request(self._capture)
