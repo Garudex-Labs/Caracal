@@ -8,8 +8,6 @@ Provides two entry points to initialize the SDK:
     - ``CaracalClient(api_key=...)`` — quick start with sensible defaults
     - ``CaracalBuilder().set_api_key(...).use(...).build()`` — advanced config
 
-Backward compatibility: Passing ``config_path=`` to ``CaracalClient``
-delegates to the legacy v0.1 client with a deprecation warning.
 """
 
 from __future__ import annotations
@@ -28,58 +26,10 @@ from caracal.exceptions import SDKConfigurationError
 logger = get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Legacy client (preserved for backward compatibility)
-# ---------------------------------------------------------------------------
-
-# Rename the existing v0.1 class so the new CaracalClient owns the name.
-# Import is deferred to avoid pulling in heavy deps when they aren't needed.
-_LEGACY_CLIENT_LOADED = False
-_LegacyCaracalClientClass: Optional[type] = None
-
-
-def _get_legacy_class() -> type:
-    """Lazily import the v0.1 CaracalClient implementation."""
-    global _LEGACY_CLIENT_LOADED, _LegacyCaracalClientClass
-    if not _LEGACY_CLIENT_LOADED:
-        # The original client.py content is preserved in _legacy_client.py
-        # For backward compat we inline the legacy initialization logic here.
-        _LEGACY_CLIENT_LOADED = True
-        try:
-            from caracal.config.settings import CaracalConfig, load_config
-            from caracal.core.identity import AgentRegistry
-            from caracal.core.ledger import LedgerQuery, LedgerWriter
-            from caracal.core.metering import MeteringCollector
-
-            class _LegacyClient:
-                """Legacy v0.1 CaracalClient (config_path based)."""
-                def __init__(self, config_path=None):
-                    self.config = load_config(config_path)
-                    from caracal.core.delegation import DelegationTokenManager
-                    self.agent_registry = AgentRegistry(
-                        registry_path=self.config.storage.agent_registry,
-                        backup_count=self.config.storage.backup_count,
-                        delegation_token_manager=None,
-                    )
-                    self.delegation_token_manager = DelegationTokenManager(
-                        agent_registry=self.agent_registry
-                    )
-                    self.agent_registry.delegation_token_manager = self.delegation_token_manager
-                    self.ledger_writer = LedgerWriter(
-                        ledger_path=self.config.storage.ledger,
-                        backup_count=self.config.storage.backup_count,
-                    )
-                    self.ledger_query = LedgerQuery(ledger_path=self.config.storage.ledger)
-                    self.metering_collector = MeteringCollector(ledger_writer=self.ledger_writer)
-
-            _LegacyCaracalClientClass = _LegacyClient
-        except Exception:
-            _LegacyCaracalClientClass = None
-    return _LegacyCaracalClientClass  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
-# New CaracalClient (v2)
+# CaracalClient
 # ---------------------------------------------------------------------------
 
 class CaracalClient:
@@ -95,14 +45,11 @@ class CaracalClient:
         ctx = client.context.checkout(organization_id="org_1", workspace_id="ws_1")
         await ctx.mandates.create(agent_id="a1", allowed_operations=["read"], expires_in=3600)
 
-    **Backward compatibility**: If ``config_path`` is passed instead of
-    ``api_key``, the legacy v0.1 client is used with a deprecation warning.
-
     Args:
         api_key: API key for authentication.
         base_url: Root URL of the Caracal API. Defaults to ``http://localhost:8000``.
         adapter: Optional custom transport adapter (overrides base_url/api_key based default).
-        config_path: **Deprecated** — v0.1 config file path.
+
     """
 
     def __init__(
@@ -110,30 +57,8 @@ class CaracalClient:
         api_key: Optional[str] = None,
         base_url: str = "http://localhost:8000",
         adapter: Optional[BaseAdapter] = None,
-        config_path: Optional[str] = None,
     ) -> None:
-        # -- Backward-compat path ------------------------------------------
-        if config_path is not None:
-            warnings.warn(
-                "CaracalClient(config_path=...) is deprecated and will be removed "
-                "in v0.4. Use CaracalClient(api_key=...) instead. "
-                "See migration guide: https://garudexlabs.com/docs/migration/v0.1-to-v0.2",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            legacy_cls = _get_legacy_class()
-            if legacy_cls is None:
-                raise SDKConfigurationError(
-                    "Legacy CaracalClient requires core storage modules. "
-                    "Use CaracalClient(api_key=...) instead."
-                )
-            self._legacy = legacy_cls(config_path=config_path)
-            self._is_legacy = True
-            return
-
-        # -- New v2 path ---------------------------------------------------
-        self._is_legacy = False
-        self._legacy = None
+        # -- Core Initialization -------------------------------------------
 
         if api_key is None and adapter is None:
             raise SDKConfigurationError(
@@ -155,7 +80,7 @@ class CaracalClient:
         )
 
         self._extensions: List[CaracalExtension] = []
-        logger.info("CaracalClient initialized (v2)")
+        logger.info("CaracalClient initialized")
 
     # -- Extension registration --------------------------------------------
 
@@ -168,11 +93,7 @@ class CaracalClient:
         Returns:
             ``self`` for method chaining.
         """
-        if self._is_legacy:
-            raise SDKConfigurationError(
-                "Extensions are not supported in legacy mode. "
-                "Use CaracalClient(api_key=...) instead."
-            )
+
         extension.install(self._hooks)
         self._extensions.append(extension)
         logger.info(f"Extension installed: {extension.name} v{extension.version}")
@@ -183,10 +104,6 @@ class CaracalClient:
     @property
     def context(self) -> ContextManager:
         """Context manager for scope checkout."""
-        if self._is_legacy:
-            raise SDKConfigurationError(
-                "Context management is not available in legacy mode."
-            )
         return self._context_manager
 
     @property
@@ -213,35 +130,10 @@ class CaracalClient:
 
     def close(self) -> None:
         """Release all resources."""
-        if not self._is_legacy and self._adapter:
+        if self._adapter:
             self._adapter.close()
             logger.info("CaracalClient closed")
 
-    # -- Legacy proxy methods (for backward compat) ------------------------
-
-    def emit_event(self, *args: Any, **kwargs: Any) -> None:
-        """**Deprecated** — proxy to legacy client's emit_event."""
-        if self._is_legacy and self._legacy:
-            return self._legacy.emit_event(*args, **kwargs)
-        raise SDKConfigurationError(
-            "emit_event() is a legacy method. Use mandates or metering APIs."
-        )
-
-    def create_child_agent(self, *args: Any, **kwargs: Any) -> Any:
-        """**Deprecated** — proxy to legacy client's create_child_agent."""
-        if self._is_legacy and self._legacy:
-            return self._legacy.create_child_agent(*args, **kwargs)
-        raise SDKConfigurationError(
-            "create_child_agent() is a legacy method. Use client.agents.create_child()."
-        )
-
-    def get_delegation_token(self, *args: Any, **kwargs: Any) -> Any:
-        """**Deprecated** — proxy to legacy client's get_delegation_token."""
-        if self._is_legacy and self._legacy:
-            return self._legacy.get_delegation_token(*args, **kwargs)
-        raise SDKConfigurationError(
-            "get_delegation_token() is a legacy method. Use client.delegation.get_token()."
-        )
 
 
 # ---------------------------------------------------------------------------
