@@ -202,19 +202,8 @@ if [ "$WAIT" = true ] && [ "$DRY_RUN" = false ]; then
 fi
 echo ""
 
-# Step 5: Deploy Gateway Proxy
-print_info "Step 5/6: Deploying Gateway Proxy..."
-print_success "Gateway Proxy deployed"
-
-if [ "$WAIT" = true ] && [ "$DRY_RUN" = false ]; then
-  print_info "Waiting for Gateway Proxy to be ready..."
-    -n "$NAMESPACE" --timeout=300s
-  print_success "Gateway Proxy is ready"
-fi
-echo ""
-
-# Step 6: Deploy MCP Adapter
-print_info "Step 6/6: Deploying MCP Adapter..."
+# Step 5: Deploy MCP Adapter
+print_info "Step 5/5: Deploying MCP Adapter..."
 $KUBECTL_CMD -f mcp-adapter-deployment.yaml
 print_success "MCP Adapter deployed"
 
@@ -244,7 +233,6 @@ if [ "$DRY_RUN" = false ]; then
   print_info "Next steps:"
   echo "  1. Check pod status: kubectl get pods -n $NAMESPACE"
   echo "  2. View logs: kubectl logs -n $NAMESPACE -l app.kubernetes.io/name=caracal -f"
-  echo "  4. Test health: curl -k https://<gateway-ip>:8443/health"
   echo ""
   print_info "To initialize the database:"
   echo "  kubectl port-forward -n $NAMESPACE svc/caracal-postgres 5432:5432"
